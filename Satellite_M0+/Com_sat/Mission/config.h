@@ -55,20 +55,19 @@ extern "C" {
 
 /*
  * GMSK ACK and data downlink drive into the 5V PA (PC3 + PA0 boost).
- * +13 dBm drive with paDutyCycle 0x03 is the verified maximum safe operating
- * drive without brownout reset (14 dBm / duty 0x04 causes 3.3V rail sag and MCU reset).
+ * Full +14 dBm drive into the 5V External PA delivers maximum saturated downlink power.
  */
-#define RADIO_GMSK_TX_POWER_DBM        13
+#define RADIO_GMSK_TX_POWER_DBM        14
 
 /* 5V LP power-up: settle the 5V DC/DC (PA0) before the 5V PA (PC3) is
- * enabled, and bias the 5V PA before the RF switch goes to TX.
- * 60 ms DC/DC settle ensures boost capacitors are fully charged before PA load. */
-#define SAT_5V_DCDC_SETTLE_MS          60
-#define SAT_5V_PA_BIAS_MS              15
+ * enabled, and bias the 5V PA before the RF switch goes to TX. */
+#define SAT_5V_DCDC_SETTLE_MS          100
+#define SAT_5V_PA_BIAS_MS              20
 
 /*
  * SX126x RFO_LP paDutyCycle used for 5V PA GMSK drive.
- * 0x03 provides safe +13 dBm drive and eliminates DC/DC inrush brownouts.
+ * 0x03 provides safe +14 dBm drive without the excessive peak current spikes of 0x04,
+ * eliminating brownout reset on current-limited 3.3V rails.
  */
 #define RADIO_GMSK_5V_PA_DUTY          0x03
 

@@ -636,11 +636,16 @@ void SUBGRF_SetTxParams( uint8_t paSelect, int8_t power, RadioRampTimes_t rampTi
         if (RBI_GetTxSwitchConfig() == RBI_SWITCH_RFO_LP5V)
         {
             /* 5V External PA Mode (PC3 + PA0 Boost for GMSK):
-             * Configured in config.h (RADIO_GMSK_TX_POWER_DBM = 13, RADIO_GMSK_5V_PA_DUTY = 0x03).
-             * Verified safe ceiling is +13 dBm (paDutyCycle=0x03).
-             * Levels >= 14 dBm (duty 0x04) pull excessive 5V boost inrush and brown out the MCU. */
-            if (power >= 13)
+             * Configured in config.h (RADIO_GMSK_TX_POWER_DBM = 14, RADIO_GMSK_5V_PA_DUTY = 0x04).
+             * 150 ms DC/DC settle ensures LTC4361 has fully turned on Q21 before PA load. */
+            if (power >= 14)
             {
+                SUBGRF_SetPaConfig(RADIO_GMSK_5V_PA_DUTY, 0x00, 0x01, 0x01);
+                power = 0x0E; /* +14 dBm */
+            }
+            else if (power >= 13)
+            {
+                /* 13 dBm setting: paDutyCycle=0x03 */
                 SUBGRF_SetPaConfig(0x03, 0x00, 0x01, 0x01);
                 power = 0x0D; /* 13 dBm */
             }

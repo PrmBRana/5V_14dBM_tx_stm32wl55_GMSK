@@ -498,6 +498,7 @@ static bool Radio_Send_And_Wait(uint8_t *buffer, uint16_t size, uint32_t timeout
         }
         CPU2_Delay_Ms(1);
     }
+    uart1_puts("[GMSK-TX] 8. RF transmission completed successfully!\r\n");
     CPU2_Delay_Ms(2);
     if (Satellite_GetDCDCHold()) {
         return true;

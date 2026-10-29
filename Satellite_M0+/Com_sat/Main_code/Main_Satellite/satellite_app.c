@@ -432,14 +432,12 @@ void Satellite_Hold_Continuous_Carrier_5V(uint32_t seconds) {
     uart1_printf(" Frequency : %lu.%03lu MHz\r\n",
                  (unsigned long)(s_config.radio.txFrequency / 1000000UL),
                  (unsigned long)((s_config.radio.txFrequency % 1000000UL) / 1000UL));
-    uart1_printf(" Power     : +%d dBm (5V External PA PC3 / SI2, Boost PA0 ON)\r\n",
-                 (s_config.txPowerDbm != 0) ? s_config.txPowerDbm : RADIO_TX_POWER_DBM);
+    int8_t power = RADIO_GMSK_TX_POWER_DBM;
+    uart1_printf(" Power     : +%d dBm (5V External PA PC3 / SI2, Boost PA0 ON)\r\n", power);
     uart1_puts(" Pure unmodulated CW carrier for Spectrum Analyzer / Power Meter\r\n");
     uart1_puts(" Eliminates GMSK modulation spreading to verify true 27 dBm saturation\r\n");
     uart1_puts("============================================================\r\n");
 
-    int8_t power = RADIO_GMSK_TX_POWER_DBM;
-    if (power > 13) power = 13;
     uint8_t pa_sel = RFO_LP;
     SUBGRF_SetStandby(STDBY_XOSC);
 
@@ -456,7 +454,7 @@ void Satellite_Hold_Continuous_Carrier_5V(uint32_t seconds) {
     /* 3. Configure RF switch for 5V PA path */
     RBI_SetTxSwitchConfig(RBI_SWITCH_RFO_LP5V);
     Satellite_SetRFSwitch(RBI_SWITCH_RFO_LP5V);
-    CPU2_Delay_Ms(40);
+    CPU2_Delay_Ms(50);
 
     SUBGRF_SetDioIrqParams(IRQ_RADIO_NONE, IRQ_RADIO_NONE, IRQ_RADIO_NONE, IRQ_RADIO_NONE);
     SUBGRF_ClearIrqStatus(IRQ_RADIO_ALL);
@@ -911,20 +909,23 @@ void Satellite_GMSK_Prepare(void) {
         HAL_GPIO_WritePin(AMP_3V3_EN_PORT, AMP_3V3_EN_PIN, GPIO_PIN_RESET);
         CPU2_Delay_Ms(5);
 
+        uart1_puts("[GMSK-PWR] 1. DC/DC ON\r\n");
         RBI_Enable5VDCDC(1);
         CPU2_Delay_Ms(SAT_5V_DCDC_SETTLE_MS);
 
+        uart1_puts("[GMSK-PWR] 2. 5V PA ON\r\n");
         HAL_GPIO_WritePin(AMP_5V_EN_PORT, AMP_5V_EN_PIN,
                           RBI_IsPAEnabled() ? GPIO_PIN_SET : GPIO_PIN_RESET);
         CPU2_Delay_Ms(SAT_5V_PA_BIAS_MS);
 
+        uart1_puts("[GMSK-PWR] 3. RFO_LP5V Switch\r\n");
         RBI_SetTxSwitchConfig(RBI_SWITCH_RFO_LP5V);
         Satellite_SetRFSwitch(RBI_SWITCH_RFO_LP5V);
         CPU2_Delay_Ms(40);
 
         SUBGRF_SetPaConfig(RADIO_GMSK_5V_PA_DUTY, 0x00, 0x01, 0x01);
         SUBGRF_WriteRegister(REG_OCP, 0x38);
-        uart1_puts("[GMSK] 5V PA ON\r\n");
+        uart1_puts("[GMSK-PWR] 4. 5V PA Ready\r\n");
     } else {
         const bool pa3v3_already_on =
             (HAL_GPIO_ReadPin(AMP_3V3_EN_PORT, AMP_3V3_EN_PIN) == GPIO_PIN_SET) &&

@@ -254,7 +254,9 @@ void RadioApp_Send(
         IRQ_RADIO_NONE);
     SUBGRF_ClearIrqStatus(IRQ_RADIO_ALL);
 
+    uart1_puts("[GMSK-TX] Keying RF...\r\n");
     SUBGRF_SetTx(0);
+    uart1_puts("[GMSK-TX] RF Keyed!\r\n");
 }
 
 /*
