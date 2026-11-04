@@ -61,8 +61,8 @@ extern "C" {
 
 /* 5V LP power-up: settle the 5V DC/DC (PA0) before the 5V PA (PC3) is
  * enabled, and bias the 5V PA before the RF switch goes to TX. */
-#define SAT_5V_DCDC_SETTLE_MS          100
-#define SAT_5V_PA_BIAS_MS              20
+#define SAT_5V_DCDC_SETTLE_MS          500
+#define SAT_5V_PA_BIAS_MS              60
 
 /*
  * SX126x RFO_LP paDutyCycle used for 5V PA GMSK drive.

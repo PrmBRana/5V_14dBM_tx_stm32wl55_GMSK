@@ -107,13 +107,15 @@ FLASH_DUMP_FILE = os.path.join(SCRIPT_DIR, "downloaded_flash_data.bin")
 EXCEL_EXPORT_PATH = os.path.join(SCRIPT_DIR, "ground_station_telemetry.xlsx")
 
 # Firmware opcodes (strictly matching Packet Format.xlsx and firmware)
-OPCODE_CAM_DOWN   = bytes([0x1D, 0xD2, 0xF5])  # cam.txt download (MCU 0x01)
-OPCODE_HK         = bytes([0x1D, 0xD1, 0xF2])  # sat_health.txt / HK download (MCU 0x01)
-OPCODE_FLASH      = bytes([0x1D, 0xD1, 0xF8])  # Raw Flash storage download (MCU 0x01)
-OPCODE_CAM_ON     = bytes([0xCC, 0x5E, 0xBD])  # Real camera capture mission (MCU 0x04)
-OPCODE_CAM_DUMMY  = bytes([0xCC, 0x5E, 0xBE])  # Dummy camera test (MCU 0x04)
-OPCODE_ADCS       = bytes([0xA0, 0x53, 0xCF])  # ADCS mission (MCU 0x03)
-OPCODE_EPDM       = bytes([0xEC, 0xCF, 0xCF])  # EPDM mission (MCU 0x05)
+OPCODE_CAM_DOWN      = bytes([0x1D, 0xD2, 0xF5])  # cam.txt download (MCU 0x01)
+OPCODE_HK            = bytes([0x1D, 0xD1, 0xF2])  # sat_health.txt / HK download (MCU 0x01)
+OPCODE_FLASH         = bytes([0x1D, 0xD1, 0xF8])  # Raw Flash storage download (MCU 0x01)
+OPCODE_CAM_REAL_DOWN = bytes([0xCC, 0x5E, 0xBD])  # Real camera data downlink (MCU 0x04)
+OPCODE_CAM_ON        = bytes([0xCC, 0x5E, 0xBD])  # Real camera data downlink (MCU 0x04)
+OPCODE_CAM_DUMMY     = bytes([0xCC, 0x5E, 0xBE])  # Dummy camera test (MCU 0x04)
+OPCODE_CAM_CAP       = bytes([0xCC, 0x5E, 0xBC])  # Real camera capture mission (MCU 0x04)
+OPCODE_ADCS          = bytes([0xA0, 0x53, 0xCF])  # ADCS mission (MCU 0x03)
+OPCODE_EPDM          = bytes([0xEC, 0xCF, 0xCF])  # EPDM mission (MCU 0x05)
 
 MCU_ID_OBC  = 0x01
 MCU_ID_ADCS = 0x03
@@ -497,6 +499,22 @@ def extract_chunks_from_text(text: str):
         if key not in seen:
             seen.add(key)
             unique_found.append(c)
+
+    # Check if raw text starts with JPEG SOI (FF D8) before first CA FE chunk
+    if len(all_tokens) >= 14:
+        try:
+            raw_all = bytes([int(x, 16) for x in all_tokens])
+            if b"\xff\xd8" in raw_all and not any(c[0] == 0 for c in unique_found):
+                soi_idx = raw_all.find(b"\xff\xd8")
+                first_cafe = raw_all.find(b"\xca\xfe")
+                if first_cafe == -1:
+                    first_cafe = raw_all.find(b"\xfe\xca")
+                if first_cafe > soi_idx:
+                    chunk0_data = raw_all[soi_idx:min(soi_idx + 128, first_cafe)]
+                    total_pkts = unique_found[0][1] if unique_found else 69
+                    unique_found.insert(0, (0, total_pkts, 0, chunk0_data))
+        except Exception:
+            pass
 
     return unique_found
 
@@ -1558,7 +1576,9 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
     target_options = {
         "📊 sat_health.txt (HK Telemetry) - Opcode 1D D1 F2": (MCU_ID_OBC, OPCODE_HK, 0x0000),
         "💾 raw_flash.bin (Flash Storage) - Opcode 1D D1 F8": (MCU_ID_OBC, OPCODE_FLASH, 0x0000),
-        "📷 cam.txt (Camera Photo Download) - Opcode 1D D2 F5": (MCU_ID_OBC, OPCODE_CAM_DOWN, 0x0000),
+        "📷 Real Camera Data Downlink - Opcode CC 5E BD": (MCU_ID_CAM, OPCODE_CAM_REAL_DOWN, 0x0000),
+        "🧪 Dummy Camera Test Downlink - Opcode CC 5E BE": (MCU_ID_CAM, OPCODE_CAM_DUMMY, DATA_ID_DUMMY),
+        "📷 cam.txt (Legacy OBC Download) - Opcode 1D D2 F5": (MCU_ID_OBC, OPCODE_CAM_DOWN, 0x0000),
     }
     target_var = tk.StringVar(value="📊 sat_health.txt (HK Telemetry) - Opcode 1D D1 F2")
     target_combo = ttk.Combobox(target_row, textvariable=target_var,
@@ -1721,8 +1741,10 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
         MCU_ID_OBC, bytes([0x1D, 0xD1, 0xF5]), 0x0000, 0x00000000, 1)
     cam_dummy_hex, cam_dummy_raw = build_telecommand_hex(
         MCU_ID_CAM, OPCODE_CAM_DUMMY, DATA_ID_DUMMY, 0x00000000, 69)
-    cam_on_hex, cam_on_raw = build_telecommand_hex(
-        MCU_ID_CAM, OPCODE_CAM_ON, 0x0000, 0x00000000, 0)
+    cam_real_down_hex, cam_real_down_raw = build_telecommand_hex(
+        MCU_ID_CAM, OPCODE_CAM_REAL_DOWN, 0x0000, 0x00000000, 0)
+    cam_cap_hex, cam_cap_raw = build_telecommand_hex(
+        MCU_ID_CAM, OPCODE_CAM_CAP, 0x0000, 0x00000000, 0)
     cam_down_hex, cam_down_raw = build_telecommand_hex(
         MCU_ID_OBC, OPCODE_CAM_DOWN, 0x0000, 0x00000000, 69)
     adcs_hex, adcs_raw = build_telecommand_hex(
@@ -1737,11 +1759,13 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
          hk_raw, f"HK request sent ({hk_hex})"),
         ("💾 Request Flash Storage Telemetry (5 Chunks @ 128B)",
          flash_raw, f"Flash read sent ({flash_hex})"),
-        ("🧪 Send Dummy Camera Test Command (All 69 Chunks - 8.8KB)",
+        ("🧪 Send Dummy Camera Test Command (53 04 CC 5E BE... - 69 Chunks)",
          cam_dummy_raw, f"Dummy Camera Test sent ({cam_dummy_hex} - 69 Chunks)"),
-        ("📷 Real Camera Capture (UART2 /dev/ttyS1 Handshake)",
-         cam_on_raw, f"Real Camera trigger sent ({cam_on_hex})"),
-        ("📥 Downlink Camera Photo Packets (All 69 Chunks @ 128B)",
+        ("📷 Real Camera Data Downlink (53 04 CC 5E BD 00 00 00 00 00 00 00 00)",
+         cam_real_down_raw, f"Real Camera Data Downlink sent ({cam_real_down_hex})"),
+        ("📸 Real Camera Capture (UART2 /dev/ttyS1 -> Flash, NO downlink)",
+         cam_cap_raw, f"Real Camera trigger sent ({cam_cap_hex})"),
+        ("📥 Downlink Camera Photo Packets (Legacy Opcode 1D D2 F5)",
          cam_down_raw, f"Camera photo download request sent ({cam_down_hex})"),
         ("🧭 ADCS ON: Run ADCS Mission (Opcode A0 53 CF)",
          adcs_raw, f"ADCS Mission trigger sent ({adcs_hex})"),
@@ -2684,12 +2708,12 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
             f2 = parsed['f2']
             f_end = parsed['f_end']
 
-            f1_ok = "[VALID 0xAA55]" if f1 == 0xAA55 else f"[0x{f1:04X}]"
-            f2_ok = "[VALID 0xBB66]" if f2 == 0xBB66 else f"[0x{f2:04X}]"
+            f1_ok = "[VALID 0xAA55]" if f1 in (0xAA55, 0x55AA) else f"[0x{f1:04X}]"
+            f2_ok = "[VALID 0xBB66]" if f2 in (0xBB66, 0x66BB) else f"[0x{f2:04X}]"
             if f_end is None:
                 f_end_ok = "[not present]"
             else:
-                f_end_ok = "[VALID 0xAACC]" if f_end == 0xAACC \
+                f_end_ok = "[VALID 0xAACC]" if f_end in (0xAACC, 0xCCAA) \
                     else f"[0x{f_end:04X}]"
 
             # Update live telemetry dashboard cards
@@ -2791,10 +2815,10 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
         if not line:
             return
 
-        # JSON payloads
-        if line.startswith("{") and line.endswith("}"):
+        # JSON payloads (may be prefixed by "> " prompt or single char from uart2_putc)
+        if "{" in line and line.endswith("}"):
             try:
-                obj = json.loads(line)
+                obj = json.loads(line[line.find("{"):])
                 t = obj.get("type")
                 if t == "HK":
                     handle_hk_telemetry(obj)

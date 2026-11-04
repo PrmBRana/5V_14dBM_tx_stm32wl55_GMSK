@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Slippers2Sat Ground Station (OpenBirdsOperation)
+Comment=NAST Ground Station Software with CW Beacon Decoder
+Exec=/home/prem/Desktop/nuttxspace/Ground_Station/Desktop_GS_SOFTWARE-20261101T100316Z-1-001/Desktop_GS_SOFTWARE/NAST_GS_CODE/run_gs_software.sh %f
+Path=/home/prem/Desktop/nuttxspace/Ground_Station/Desktop_GS_SOFTWARE-20261101T100316Z-1-001/Desktop_GS_SOFTWARE/NAST_GS_CODE
+Icon=/home/prem/Desktop/nuttxspace/Ground_Station/Desktop_GS_SOFTWARE-20261101T100316Z-1-001/Desktop_GS_SOFTWARE/NAST_GS_CODE/OpenBirdsOperation/Images/s2s_logo.png
+Terminal=false
+Categories=Science;Utility;HamRadio;
+MimeType=application/x-ms-dos-executable;application/x-msdownload;application/x-dosexec;application/vnd.microsoft.portable-executable;

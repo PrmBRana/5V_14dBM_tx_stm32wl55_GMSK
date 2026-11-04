@@ -1,0 +1,53 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\Dell\\Downloads\\NAST_GS_CODE-20250823T071112Z-1-001\\NAST_GS_CODE\\OpenBirdsOperation\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{BFB0756A-36E7-4379-9901-C25BFD30C19C}|OpenBirdsOperation\\OpenBirdsOperation.csproj|c:\\users\\dell\\downloads\\nast_gs_code-20250823t071112z-1-001\\nast_gs_code\\openbirdsoperation\\openbirdsoperation\\operationmain.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{BFB0756A-36E7-4379-9901-C25BFD30C19C}|OpenBirdsOperation\\OpenBirdsOperation.csproj|solutionrelative:openbirdsoperation\\operationmain.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{BFB0756A-36E7-4379-9901-C25BFD30C19C}|OpenBirdsOperation\\OpenBirdsOperation.csproj|c:\\users\\dell\\downloads\\nast_gs_code-20250823t071112z-1-001\\nast_gs_code\\openbirdsoperation\\openbirdsoperation\\operationmain.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BFB0756A-36E7-4379-9901-C25BFD30C19C}|OpenBirdsOperation\\OpenBirdsOperation.csproj|solutionrelative:openbirdsoperation\\operationmain.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "operationMain.cs",
+              "DocumentMoniker": "C:\\Users\\Dell\\Downloads\\NAST_GS_CODE-20250823T071112Z-1-001\\NAST_GS_CODE\\OpenBirdsOperation\\OpenBirdsOperation\\operationMain.cs",
+              "RelativeDocumentMoniker": "OpenBirdsOperation\\operationMain.cs",
+              "ToolTip": "C:\\Users\\Dell\\Downloads\\NAST_GS_CODE-20250823T071112Z-1-001\\NAST_GS_CODE\\OpenBirdsOperation\\OpenBirdsOperation\\operationMain.cs*",
+              "RelativeToolTip": "OpenBirdsOperation\\operationMain.cs*",
+              "ViewState": "AgIAAC4CAAAAAAAAAAApwAkCAAAMAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-23T13:43:14.055Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "operationMain.cs [Design]",
+              "DocumentMoniker": "C:\\Users\\Dell\\Downloads\\NAST_GS_CODE-20250823T071112Z-1-001\\NAST_GS_CODE\\OpenBirdsOperation\\OpenBirdsOperation\\operationMain.cs",
+              "RelativeDocumentMoniker": "OpenBirdsOperation\\operationMain.cs",
+              "ToolTip": "C:\\Users\\Dell\\Downloads\\NAST_GS_CODE-20250823T071112Z-1-001\\NAST_GS_CODE\\OpenBirdsOperation\\OpenBirdsOperation\\operationMain.cs [Design]*",
+              "RelativeToolTip": "OpenBirdsOperation\\operationMain.cs [Design]*",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-23T13:43:12.433Z",
+              "EditorCaption": " [Design]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

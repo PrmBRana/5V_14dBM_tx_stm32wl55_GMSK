@@ -1245,6 +1245,7 @@ static int send_telemetry_to_ringbuffer(
  * Name: check_camera_data_available
  ****************************************************************************/
 
+static bool check_camera_data_available(void) __attribute__((unused));
 static bool check_camera_data_available(void)
 {
   DIR *d;
@@ -1292,11 +1293,15 @@ static bool check_camera_data_available(void)
 #define CAM_FLASH_STORAGE_PATH  "/mnt/camera/capture_01.raw"
 #define CAM_FLASH_STORAGE_PATH2 "/mnt/camera/capture_02.raw"
 
-/* Camera answers 0xCA with Photo 1 SOI (FFD8) within 10 s, and then Photo 2
- * SOI (FFD8) within 10 s after Photo 1 completes. */
-#define CAM_SOI_WAIT_MS         10000
+/* Real camera timing:
+ * 1. Warm-up wait: 20 seconds after enabling power rails before sending 0xCA.
+ * 2. SOI wait: 20 seconds wait after 0xCA for Photo 1 SOI (0xFFD8).
+ * 3. Photo 2 wait: 20 seconds wait after Photo 1 completes for Photo 2 SOI (0xFFD8).
+ * 4. Total window: 65 seconds total capture window.
+ */
+#define CAM_SOI_WAIT_MS         20000
 #define CAM_IDLE_TIMEOUT_MS     5000
-#define CAM_TOTAL_TIMEOUT_MS    35000
+#define CAM_TOTAL_TIMEOUT_MS    45000
 
 static uint32_t cam_elapsed_ms(const struct timespec *from)
 {
@@ -1310,12 +1315,12 @@ static uint32_t cam_elapsed_ms(const struct timespec *from)
  * Name: camera_capture_via_uart2
  *
  * Description:
- *   Opens UART2 (/dev/ttyS1 @ 115200 8N1 Raw), sends 0xCA command byte
- *   (no handshake), listens for two incoming JPEG photos (0xFFD8...0xFFD9),
- *   and stores both photos into Flash Partition 2:
+ *   Turns on camera power rails (no warmup), sends 0xCA command byte
+ *   immediately, enters receiving mode waiting up to 20s for two incoming
+ *   JPEG photos (0xFFD8...0xFFD9):
  *     - Photo 1 -> /mnt/camera/capture_01.raw
  *     - Photo 2 -> /mnt/camera/capture_02.raw
- *   Falls back gracefully to onboard sample photo if no camera responds.
+ *   If nothing arrives within 20s, stops, powers down rails, and returns 0.
  ****************************************************************************/
 
 static size_t camera_capture_via_uart2(void)
@@ -1334,24 +1339,22 @@ static size_t camera_capture_via_uart2(void)
          "            - PC6  : GPIO2 / Mission 2 Enable -> ON\n"
          "[OBC_MAIN] ============================================================\n");
   board_camera_power(true);
+  usleep(50000); /* 50 ms power rail stabilization */
 
-  /* Power stabilization delay for real camera hardware bootup */
-  usleep(500000); /* 500 ms */
-
-  printf("[OBC_MAIN] >>> [CAMERA UART2] SENDING 0xCA COMMAND ON %s <<<\n", CAM_UART_DEV);
+  printf("[OBC_MAIN] >>> [CAMERA UART2] SENDING 0xCA COMMAND ON %s (NO WARMUP) <<<\n", CAM_UART_DEV);
   printf("[OBC_MAIN] >>> LISTENING FOR TWO PHOTOS (FF D8 ... FF D9) TO PARTITION 2 <<<\n");
   printf("[OBC_MAIN] ============================================================\n");
 
   int fd = open(CAM_UART_DEV, O_RDWR | O_NOCTTY);
   if (fd < 0)
     {
-      printf("[OBC_MAIN] [CAMERA UART2] Warning: Could not open %s (errno=%d).\n"
-             "[OBC_MAIN] [CAMERA UART2] Disabling power rails & using onboard flight photo fallback.\n",
+      printf("[OBC_MAIN] [CAMERA UART2] Error: Could not open %s (errno=%d).\n",
              CAM_UART_DEV, errno);
       printf("[OBC_MAIN] >>> [CAMERA POWER OFF] Disabling PA0 (5V), PA12 (3.3V), PC13 (Mission1), PC6 (Mission2) <<<\n");
       board_camera_power(false);
-      ipcc_m4_send(IPCC_CH_COMMAND); /* Notify M0+ that camera power rails are OFF */
-      printf("[OBC_MAIN] [IPCC] Sent IPCC_CH_COMMAND notification to M0+ (Camera GPIOs OFF)\n");
+      unlink(CAM_FLASH_STORAGE_PATH);
+      unlink(CAM_FLASH_STORAGE_PATH2);
+      return 0;
     }
   else
     {
@@ -1375,6 +1378,8 @@ static size_t camera_capture_via_uart2(void)
       printf("[OBC_MAIN] [CAMERA UART2] Sent 0xCA command byte to camera\n");
 
       mkdir("/mnt/camera", 0777);
+      unlink(CAM_FLASH_STORAGE_PATH);
+      unlink(CAM_FLASH_STORAGE_PATH2);
 
       size_t photo1_len = 0;
       size_t photo2_len = 0;
@@ -1500,7 +1505,7 @@ static size_t camera_capture_via_uart2(void)
                               out_fd = -1;
                             }
 
-                          printf("[OBC_MAIN] [CAMERA UART2] >>> Photo %d: JPEG EOI (0xFFD9) DETECTED! Total: %u Bytes saved <<<\n",
+                          printf("[OBC_MAIN] [CAMERA UART2] >>> Photo %d: JPEG EOI (0xFFD9) DETECTED! Total: %u Bytes saved in Flash <<<\n",
                                  current_photo, (unsigned)current_captured_len);
 
                           if (current_photo == 1)
@@ -1508,16 +1513,20 @@ static size_t camera_capture_via_uart2(void)
                               photo1_len = current_captured_len;
                               current_photo = 2;
                               prev_b = 0;
-                              /* Restart dedicated 10-second timer for Photo 2 SOI! */
+                              /* Restart dedicated 20-second timer for Photo 2 SOI! */
                               clock_gettime(CLOCK_MONOTONIC, &t_photo_start);
                               t_last = t_photo_start;
-                              printf("[OBC_MAIN] [CAMERA UART2] Photo 1 stored in flash! Waiting up to %d ms for Photo 2 SOI (0xFFD8) -> %s\n",
+                              printf("[OBC_MAIN] [CAMERA UART2] Photo 1 received complete! Stored in %s (%u B).\n"
+                                     "[OBC_MAIN] [CAMERA UART2] Waiting up to %d ms for Photo 2 SOI (0xFFD8) -> %s\n",
+                                     CAM_FLASH_STORAGE_PATH, (unsigned)photo1_len,
                                      CAM_SOI_WAIT_MS, CAM_FLASH_STORAGE_PATH2);
                             }
                           else
                             {
                               photo2_len = current_captured_len;
                               current_photo = 3; /* Finished both photos! */
+                              printf("[OBC_MAIN] [CAMERA UART2] Photo 2 received complete! Stored in %s (%u B).\n",
+                                     CAM_FLASH_STORAGE_PATH2, (unsigned)photo2_len);
                               break;
                             }
                         }
@@ -1545,29 +1554,33 @@ static size_t camera_capture_via_uart2(void)
       /* Mission finished: Disable Camera Power Rails */
       printf("[OBC_MAIN] >>> [CAMERA POWER OFF] Disabling PA0 (5V), PA12 (3.3V), PC13 (Mission1), PC6 (Mission2) <<<\n");
       board_camera_power(false);
-      ipcc_m4_send(IPCC_CH_COMMAND); /* Notify M0+ that camera GPIO power rails are turned OFF */
-      printf("[OBC_MAIN] [IPCC] Sent IPCC_CH_COMMAND notification to M0+ (Camera GPIOs OFF)\n");
+      usleep(50000); /* 50 ms stabilization */
 
       if (photo1_len >= 128)
         {
-          printf("[OBC_MAIN] [CAMERA UART2] Capture Complete: Photo 1 = %u B, Photo 2 = %u B\n",
-                 (unsigned)photo1_len, (unsigned)photo2_len);
+          printf("[OBC_MAIN] [CAMERA UART2] Capture Complete: Photo 1 = %u B (saved to %s), Photo 2 = %u B (saved to %s)\n",
+                 (unsigned)photo1_len, CAM_FLASH_STORAGE_PATH,
+                 (unsigned)photo2_len, CAM_FLASH_STORAGE_PATH2);
           return photo1_len;
         }
+      else if (photo2_len >= 128)
+        {
+          printf("[OBC_MAIN] [CAMERA UART2] Capture Complete: Photo 2 = %u B (saved to %s)\n",
+                 (unsigned)photo2_len, CAM_FLASH_STORAGE_PATH2);
+          return photo2_len;
+        }
+
+      printf("[OBC_MAIN] [CAMERA UART2] >>> NO CAMERA DATA ARRIVED WITHIN 20s TIMEOUT! <<<\n");
+      printf("[OBC_MAIN] >>> Flash partition left empty. Returning 0 bytes captured <<<\n\n");
+      unlink(CAM_FLASH_STORAGE_PATH);
+      unlink(CAM_FLASH_STORAGE_PATH2);
+      return 0;
     }
 
-  /* Fallback: Store default onboard flight photo to flash storage partition 2 */
-  mkdir("/mnt/camera", 0777);
-  int out_fd = open(CAM_FLASH_STORAGE_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-  if (out_fd >= 0)
-    {
-      write(out_fd, g_camera_image, CAM_RAW_IMAGE_SIZE);
-      fsync(out_fd);
-      close(out_fd);
-      printf("[OBC_MAIN] [CAMERA FLASH] Stored onboard flight photo fallback to %s (%u bytes)\n",
-             CAM_FLASH_STORAGE_PATH, (unsigned)CAM_RAW_IMAGE_SIZE);
-    }
-  return CAM_RAW_IMAGE_SIZE;
+  printf("[OBC_MAIN] [CAMERA UART2] UART open failed, cannot capture camera photo.\n");
+  unlink(CAM_FLASH_STORAGE_PATH);
+  unlink(CAM_FLASH_STORAGE_PATH2);
+  return 0;
 }
 
 /****************************************************************************
@@ -1764,10 +1777,41 @@ static void stream_dummy_camera_to_m0plus(uint32_t start_addr, uint16_t num_pkts
  *   and sends each chunk to Cortex-M0+ via shared SRAM2 ring buffer.
  ****************************************************************************/
 
-static void stream_real_camera_from_flash(uint32_t start_addr, uint16_t num_pkts)
+static bool stream_real_camera_from_flash(uint32_t start_addr, uint16_t num_pkts)
 {
   mkdir("/mnt/camera", 0777);
-  int cam_fd = open(CAM_FLASH_STORAGE_PATH, O_RDONLY);
+  int cam_fd = -1;
+
+  /* If address offset is >= 0x80000, stream Photo 2 directly */
+  if (start_addr >= 0x80000)
+    {
+      cam_fd = open(CAM_FLASH_STORAGE_PATH2, O_RDONLY);
+      if (cam_fd >= 0)
+        {
+          start_addr -= 0x80000;
+        }
+    }
+
+  /* Otherwise open Photo 1 */
+  if (cam_fd < 0)
+    {
+      cam_fd = open(CAM_FLASH_STORAGE_PATH, O_RDONLY);
+      if (cam_fd >= 0)
+        {
+          off_t sz = lseek(cam_fd, 0, SEEK_END);
+          if (sz <= 0)
+            {
+              close(cam_fd);
+              cam_fd = -1;
+            }
+          else
+            {
+              lseek(cam_fd, start_addr, SEEK_SET);
+            }
+        }
+    }
+
+  /* Fallback to Photo 2 if Photo 1 not found or empty */
   if (cam_fd < 0)
     {
       cam_fd = open(CAM_FLASH_STORAGE_PATH2, O_RDONLY);
@@ -1784,17 +1828,26 @@ static void stream_real_camera_from_flash(uint32_t start_addr, uint16_t num_pkts
       lseek(cam_fd, start_addr, SEEK_SET);
     }
 
+  /* Check if photo data is empty */
+  if (cam_fd < 0 || file_size <= 0 || (uint32_t)file_size <= start_addr)
+    {
+      printf("\n[OBC_MAIN] ============================================================\n");
+      printf("[OBC_MAIN] >>> [REAL CAMERA FLASH IPC] PHOTO DATA IS EMPTY! <<<\n");
+      printf("[OBC_MAIN]     cam_fd=%d, size=%ld B, start_addr=0x%08lX\n",
+             cam_fd, (long)file_size, (unsigned long)start_addr);
+      printf("[OBC_MAIN]     No photo in flash -> Ring buffer left empty for M0+ NACK\n");
+      printf("[OBC_MAIN] ============================================================\n\n");
+      if (cam_fd >= 0)
+        {
+          close(cam_fd);
+        }
+      return false;
+    }
+
   uint16_t num_chunks = num_pkts;
   if (num_chunks == 0)
     {
-      if (file_size > 0 && (uint32_t)file_size > start_addr)
-        {
-          num_chunks = (uint16_t)((file_size - start_addr + CAM_CHUNK_SIZE - 1) / CAM_CHUNK_SIZE);
-        }
-      else
-        {
-          num_chunks = CAM_NUM_CHUNKS;
-        }
+      num_chunks = (uint16_t)((file_size - start_addr + CAM_CHUNK_SIZE - 1) / CAM_CHUNK_SIZE);
     }
 
   printf("\n[OBC_MAIN] ============================================================\n");
@@ -1853,6 +1906,7 @@ static void stream_real_camera_from_flash(uint32_t start_addr, uint16_t num_pkts
 
   printf("[OBC_MAIN] >>> [REAL CAMERA FLASH IPC] ALL %u CHUNKS STREAMED TO M0+ <<<\n\n",
          (unsigned)num_chunks);
+  return true;
 }
 
 /****************************************************************************
@@ -1865,7 +1919,7 @@ static void stream_real_camera_from_flash(uint32_t start_addr, uint16_t num_pkts
  *   If flash has no file or is uninitialized, constructs valid HK records.
  ****************************************************************************/
 
-static void stream_hk_from_flash(uint32_t start_addr, uint16_t num_pkts)
+static bool stream_hk_from_flash(uint32_t start_addr, uint16_t num_pkts)
 {
   if (num_pkts == 0) num_pkts = 1;
 
@@ -1876,18 +1930,37 @@ static void stream_hk_from_flash(uint32_t start_addr, uint16_t num_pkts)
       fd = open("/dev/hk", O_RDONLY);
     }
 
+  off_t file_size = 0;
   if (fd >= 0)
     {
+      file_size = lseek(fd, 0, SEEK_END);
       lseek(fd, start_addr, SEEK_SET);
+    }
+
+  /* Check if HK data is empty */
+  if (fd < 0 || file_size <= 0 || (uint32_t)file_size <= start_addr)
+    {
+      printf("\n[OBC_MAIN] ============================================================\n");
+      printf("[OBC_MAIN] >>> [HK FLASH IPC] HK FLASH DATA IS EMPTY! <<<\n");
+      printf("[OBC_MAIN]     fd=%d, size=%ld B, start_addr=0x%08lX\n",
+             fd, (long)file_size, (unsigned long)start_addr);
+      printf("[OBC_MAIN]     No HK records in flash -> Ring buffer left empty for M0+ NACK\n");
+      printf("[OBC_MAIN] ============================================================\n\n");
+      if (fd >= 0)
+        {
+          close(fd);
+        }
+      return false;
     }
 
   printf("\n[OBC_MAIN] ============================================================\n");
   printf("[OBC_MAIN] >>> [HK FLASH IPC] STREAMING HK FROM FLASH <<<\n");
-  printf("[OBC_MAIN]     fd=%d, start=0x%08lX, %u chunks of %u B -> M0+\n",
-         fd, (unsigned long)start_addr, (unsigned)num_pkts, (unsigned)FLASH_DATA_LEN);
+  printf("[OBC_MAIN]     fd=%d (size=%ld B), start=0x%08lX, %u chunks of %u B -> M0+\n",
+         fd, (long)file_size, (unsigned long)start_addr, (unsigned)num_pkts, (unsigned)FLASH_DATA_LEN);
   printf("[OBC_MAIN] Transport: Shared SRAM2 Ring Buffer + IPCC_CH_FLASH\n");
   printf("[OBC_MAIN] ============================================================\n");
 
+  uint16_t chunks_sent = 0;
   for (uint16_t p = 0; p < num_pkts; p++)
     {
       struct flash_chunk_s chunk;
@@ -1898,43 +1971,17 @@ static void stream_hk_from_flash(uint32_t start_addr, uint16_t num_pkts)
       chunk.data_len   = FLASH_DATA_LEN;
       chunk.status     = 0;
 
-      ssize_t n = 0;
-      if (fd >= 0)
+      ssize_t n = read(fd, chunk.data, FLASH_DATA_LEN);
+      if (n <= 0)
         {
-          n = read(fd, chunk.data, FLASH_DATA_LEN);
+          printf("[OBC_MAIN] End of HK flash file reached at chunk %u/%u\n",
+                 p + 1, (unsigned)num_pkts);
+          break;
         }
 
-      if (n < 72)
+      if (n < (ssize_t)FLASH_DATA_LEN)
         {
-          /* Construct valid live HK record */
-          int16_t *s1 = (int16_t *)&chunk.data[0];
-          s1[0] = (int16_t)385; s1[1] = (int16_t)492; s1[2] = (int16_t)330;
-          s1[3] = (int16_t)490; s1[4] = (int16_t)488; s1[5] = (int16_t)491;
-          s1[6] = (int16_t)493; s1[7] = (int16_t)490;
-          s1[8] = (int16_t)0;    /* Ant Temp (0.0C) */
-          s1[9] = (int16_t)215;  /* Bat Temp (+21.5C) */
-          s1[10] = (int16_t)220; /* BPB Temp (+22.0C) */
-          s1[11] = (int16_t)250; s1[12] = (int16_t)250;
-          s1[13] = (int16_t)250; s1[14] = (int16_t)250; s1[15] = (int16_t)250;
-          chunk.data[32] = 0x55; chunk.data[33] = 0xAA;
-
-          int16_t *s2 = (int16_t *)&chunk.data[34];
-          s2[0] = (int16_t)45;  s2[1] = (int16_t)120; s2[2] = (int16_t)18;
-          s2[3] = (int16_t)-35; /* Bat I (-0.35A) */
-          s2[4] = (int16_t)15;  s2[5] = (int16_t)15;  s2[6] = (int16_t)15;
-          s2[7] = (int16_t)15;  s2[8] = (int16_t)15;  s2[9] = (int16_t)85;
-          s2[10] = (int16_t)1;  s2[11] = (int16_t)0;
-
-          int16_t *imu = (int16_t *)&chunk.data[58];
-          imu[0] = (int16_t)-12; /* Gyro X */
-          imu[1] = (int16_t)24;  /* Gyro Y */
-          imu[2] = (int16_t)8;   /* Gyro Z */
-          imu[3] = (int16_t)320; /* Mag X */
-          imu[4] = (int16_t)110; /* Mag Y */
-          imu[5] = (int16_t)-450;/* Mag Z */
-          chunk.data[70] = 0x66; chunk.data[71] = 0xBB;
-
-          chunk.data[126] = 0xAA; chunk.data[127] = 0xCC;
+          memset(&chunk.data[n], 0x00, FLASH_DATA_LEN - n);
         }
 
       /* Wait up to 15 seconds for M0+ to read each chunk from ring buffer */
@@ -1951,6 +1998,7 @@ static void stream_hk_from_flash(uint32_t start_addr, uint16_t num_pkts)
           break;
         }
 
+      chunks_sent++;
       ipcc_m4_send(IPCC_CH_FLASH);
       printf("[OBC_MAIN] [HK FLASH IPC TX] Chunk %u/%u (128B, addr 0x%04lX) -> IPCC_CH_FLASH signaled\n",
              p + 1, (unsigned)num_pkts, (unsigned long)chunk.flash_addr);
@@ -1958,12 +2006,11 @@ static void stream_hk_from_flash(uint32_t start_addr, uint16_t num_pkts)
       usleep(10000);
     }
 
-  if (fd >= 0)
-    {
-      close(fd);
-    }
+  close(fd);
 
-  printf("[OBC_MAIN] >>> [HK FLASH IPC] ALL %u CHUNKS STREAMED TO M0+ <<<\n\n", (unsigned)num_pkts);
+  printf("[OBC_MAIN] >>> [HK FLASH IPC] %u/%u CHUNKS STREAMED TO M0+ <<<\n\n",
+         (unsigned)chunks_sent, (unsigned)num_pkts);
+  return (chunks_sent > 0);
 }
 
 /****************************************************************************
@@ -2035,20 +2082,27 @@ static void process_ground_commands(void)
                              (rx_cmd.cmd[2] == 0xC5 && rx_cmd.cmd[3] == 0xE0));
 
         /********************************************************************
-         * Real Camera Command: 53 04 CC 5E BD 00 00 00 00 00 00 00 00
+         * Real Camera Data Downlink Command:
+         *   53 04 CC 5E BD 00 00 00 00 00 00 00 00
+         * Or legacy OBC download:
+         *   53 01 1D D2 F5 [DATA_ID:2B] [ADDR:4B] [PKTS:2B]
          ********************************************************************/
 
-        bool is_real_cam = (rx_cmd.cmd[1] == CMD_TYPE_CAMERA &&
-                            rx_cmd.cmd[2] == 0xCC &&
-                            (rx_cmd.cmd[3] == 0x5E || rx_cmd.cmd[3] == 0x58) &&
-                            rx_cmd.cmd[4] == 0xBD);
+        bool is_cam_down = ((rx_cmd.cmd[1] == CMD_TYPE_CAMERA &&
+                             rx_cmd.cmd[2] == 0xCC &&
+                             (rx_cmd.cmd[3] == 0x5E || rx_cmd.cmd[3] == 0x58) &&
+                             rx_cmd.cmd[4] == 0xBD) ||
+                            (rx_cmd.cmd[1] == 0x01 && rx_cmd.cmd[2] == 0x1D &&
+                             rx_cmd.cmd[3] == 0xD2 && rx_cmd.cmd[4] == 0xF5));
 
         /********************************************************************
-         * Camera Download Command: 53 01 1D D2 F5 [DATA_ID:2B] [ADDR:4B] [PKTS:2B]
+         * Real Camera Capture Command (store to flash, NO downlink):
+         *   53 04 CC 5E BC ... or 53 04 CC 5E CA ... or 53 04 CA ...
          ********************************************************************/
 
-        bool is_cam_down = (rx_cmd.cmd[1] == 0x01 && rx_cmd.cmd[2] == 0x1D &&
-                            rx_cmd.cmd[3] == 0xD2 && rx_cmd.cmd[4] == 0xF5);
+        bool is_real_cam_cap = (rx_cmd.cmd[1] == CMD_TYPE_CAMERA &&
+                                ((rx_cmd.cmd[2] == 0xCC && (rx_cmd.cmd[4] == 0xBC || rx_cmd.cmd[4] == 0xCA)) ||
+                                 rx_cmd.cmd[2] == 0xCA));
 
         if (is_dummy_cam)
           {
@@ -2060,13 +2114,6 @@ static void process_ground_commands(void)
             stream_dummy_camera_to_m0plus(0, 69); /* All 69 chunks from camera_dummy_image.h */
             ipcc_m4_send(IPCC_CH_COMMAND); /* Notify M0+ streaming complete */
           }
-        else if (is_real_cam)
-          {
-            printf("[OBC_MAIN] Detected Verified REAL CAMERA Command -> Sending 0xCA via UART2, Listening for 2 Photos (FFD8..FFD9) to Partition 2\n");
-            camera_capture_via_uart2();
-            printf("[OBC_MAIN] Camera capture and flash storage complete -> Notifying M0+ via IPCC ACK to resume CW\n");
-            ipcc_m4_send(IPCC_CH_COMMAND); /* Signal M0+ that 2 photos are stored in flash */
-          }
         else if (is_cam_down)
           {
             uint32_t cam_addr = ((uint32_t)rx_cmd.cmd[7]  << 24) |
@@ -2074,19 +2121,35 @@ static void process_ground_commands(void)
                                 ((uint32_t)rx_cmd.cmd[9]  <<  8) |
                                  (uint32_t)rx_cmd.cmd[10];
             uint16_t cam_pkts = ((uint16_t)rx_cmd.cmd[11] <<  8) | rx_cmd.cmd[12];
-            printf("[OBC_MAIN] Detected Verified CAMERA DOWNLOAD Command: addr=0x%08lX pkts=%u -> Streaming stored photo chunks from flash to M0+\n",
+            printf("[OBC_MAIN] Detected Verified REAL CAMERA DATA DOWNLOAD Command (53 04 CC 5E BD...): addr=0x%08lX pkts=%u -> Checking flash...\n",
                    (unsigned long)cam_addr, cam_pkts);
-            /* Send initial ACK to M0+ indicating data downlink command accepted */
-            ipcc_m4_send(IPCC_CH_FLASH);
-            stream_real_camera_from_flash(cam_addr, cam_pkts);
-            ipcc_m4_send(IPCC_CH_COMMAND); /* Notify M0+ streaming complete */
+            bool has_data = stream_real_camera_from_flash(cam_addr, cam_pkts);
+            if (has_data)
+              {
+                printf("[OBC_MAIN] Real camera photo streamed to ring buffer -> Notifying M0+\n");
+              }
+            else
+              {
+                printf("[OBC_MAIN] Real camera photo data empty -> Ring buffer left empty for M0+ NACK\n");
+              }
+            ipcc_m4_send(IPCC_CH_COMMAND); /* Notify M0+ command processing complete */
           }
-        else if (rx_cmd.cmd[1] == CMD_TYPE_CAMERA)
+        else if (is_real_cam_cap)
           {
-            printf("[OBC_MAIN] Detected Generic CAMERA Command -> Sending 0xCA via UART2, listening for 2 photos\n");
-            camera_capture_via_uart2();
-            printf("[OBC_MAIN] Camera capture complete -> Notifying M0+ via IPCC ACK to resume CW\n");
-            ipcc_m4_send(IPCC_CH_COMMAND);
+            printf("[OBC_MAIN] Detected Verified REAL CAMERA CAPTURE Command -> No warmup, 0xCA trigger, wait 20s receiving mode for 2 Photos (FFD8..FFD9) to Flash (NO downlink)\n");
+            size_t cap_len = camera_capture_via_uart2();
+            if (cap_len > 0)
+              {
+                printf("[OBC_MAIN] Camera capture and flash storage complete (%u bytes) -> Signaling M0+ SUCCESS\n",
+                       (unsigned)cap_len);
+                SHARED_FLASH_REQ->seq = 1;
+              }
+            else
+              {
+                printf("[OBC_MAIN] Camera capture FAILED (no data arrived in 20s) -> Signaling M0+ NACK\n");
+                SHARED_FLASH_REQ->seq = 0;
+              }
+            ipcc_m4_send(IPCC_CH_COMMAND); /* Signal M0+ that capture task is complete */
           }
 
         /********************************************************************
@@ -2131,10 +2194,15 @@ static void process_ground_commands(void)
                     pthread_mutex_unlock(&g_beacon_mutex);
                   }
 
-                /* Send initial ACK to M0+ indicating data downlink command accepted */
-                ipcc_m4_send(IPCC_CH_FLASH);
-                stream_hk_from_flash(addr, num_pkts);
-                printf("[OBC_MAIN] %s chunks completed -> Notifying M0+ via IPCC\n", cmd_type_str);
+                bool has_data = stream_hk_from_flash(addr, num_pkts);
+                if (has_data)
+                  {
+                    printf("[OBC_MAIN] %s chunks completed -> Notifying M0+ via IPCC\n", cmd_type_str);
+                  }
+                else
+                  {
+                    printf("[OBC_MAIN] %s data empty -> Ring buffer left empty for M0+ NACK\n", cmd_type_str);
+                  }
                 ipcc_m4_send(IPCC_CH_COMMAND);
               }
           }

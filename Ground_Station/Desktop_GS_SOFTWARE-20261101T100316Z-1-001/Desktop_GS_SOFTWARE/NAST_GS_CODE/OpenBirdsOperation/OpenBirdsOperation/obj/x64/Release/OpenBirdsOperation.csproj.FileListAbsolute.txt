@@ -1,0 +1,19 @@
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\bin\x64\Release\Open Birds Operation.exe.config
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\bin\x64\Release\Open Birds Operation.exe
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\bin\x64\Release\Open Birds Operation.pdb
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\bin\x64\Release\One_Sgp4.dll
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.csproj.AssemblyReference.cache
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.commandList.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.inputDialogADCS.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.inputDialogBeacon.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.inputDialogCamera.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.inputDialogEPDM.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.inputDialogHK.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.operationMain.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.Properties.Resources.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.sendDialogDigipeaterCMD.resources
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.csproj.GenerateResource.cache
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBirdsOperation.csproj.CoreCompileInputs.cache
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\OpenBird.79DAD201.Up2Date
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\Open Birds Operation.exe
+C:\Users\Dell\Downloads\BIRDS-GS_software-using\BIRDS-GS_software-main\OpenBirdsOperation\OpenBirdsOperation\obj\x64\Release\Open Birds Operation.pdb

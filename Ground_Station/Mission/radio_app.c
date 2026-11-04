@@ -196,7 +196,7 @@ void RadioApp_StartRx(void)
     RadioApp_ArmCommon(
         s_config.rxFrequency);
 
-    Radio.Rx(0);
+    Radio.RxBoosted(0);
 }
 
 /*
@@ -423,7 +423,7 @@ void RadioApp_ResumeRx(void)
     RadioApp_ArmCommon(
         s_config.rxFrequency);
 
-    Radio.Rx(0);
+    Radio.RxBoosted(0);
 }
 
 /*
@@ -440,7 +440,7 @@ void RadioApp_RearmRxFast(void)
     SUBGRF_SetStandby(STDBY_XOSC);
     SUBGRF_SetBufferBaseAddress(SUBGHZ_TX_BUFFER_BASE, SUBGHZ_RX_BUFFER_BASE);
     SUBGRF_ClearIrqStatus(IRQ_RADIO_ALL);
-    SUBGRF_SetRx(0xFFFFFF);
+    SUBGRF_SetRxBoosted(0xFFFFFF);
 }
 
 /*

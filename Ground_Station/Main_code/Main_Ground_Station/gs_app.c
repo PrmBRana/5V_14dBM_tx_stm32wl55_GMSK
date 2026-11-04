@@ -175,10 +175,11 @@ static const uint8_t CMD_HK2[13]  = { 0x53, 0x01, 0x1D, 0xD2, 0xF2, 0x00, 0xF2,
                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
 static const uint8_t CMD_PING[13] = { 0x53, MCU_ID_OBC, 0x1D, 0xD1, 0xF5, 0x00, 0x00,
                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
-static const uint8_t CMD_CAMON[13]   = CMD_CAM_ON_COMMAND;
-static const uint8_t CMD_CAMDOWN[13] = CMD_CAM_DOWNLOAD_COMMAND;
-static const uint8_t CMD_ADCS[13]    = CMD_ADCD_COMMAND;
-static const uint8_t CMD_EPDM[13]    = CMD_EPDM_COMMAND;
+static const uint8_t CMD_CAMON[13]    = CMD_CAM_ON_COMMAND;
+static const uint8_t CMD_CAMDOWN[13]  = CMD_CAM_DOWNLOAD_COMMAND;
+static const uint8_t CMD_DUMMYCAM[13] = CMD_DUMMY_CAM_COMMAND;
+static const uint8_t CMD_ADCS[13]     = CMD_ADCD_COMMAND;
+static const uint8_t CMD_EPDM[13]     = CMD_EPDM_COMMAND;
 
 static uint8_t s_tx_frame[AX25_MAX_FRAME_SIZE];
 static uint8_t s_hex_buf[AX25_MAX_FRAME_SIZE];
@@ -863,9 +864,10 @@ void GS_Process_Received_Frame(void)
     }
 
     /* 5c: HK 128-byte telemetry packet
-     *     Identified by: plen == 128 AND footer bytes at [32..33] = 0x55 0xAA */
+     *     Identified by: plen == 128 AND footer bytes at [32..33] = 0x55 0xAA (or 0xAA 0x55) */
     if (plen == GS_HK_PKT_LEN &&
-        pl[32] == GS_HK_FOOTER1_LO && pl[33] == GS_HK_FOOTER1_HI) {
+        ((pl[32] == GS_HK_FOOTER1_LO && pl[33] == GS_HK_FOOTER1_HI) ||
+         (pl[32] == GS_HK_FOOTER1_HI && pl[33] == GS_HK_FOOTER1_LO))) {
         uart2_puts("[GS RX] *** HK TELEMETRY PACKET DETECTED (128 bytes) ***\r\n");
         GS_Display_HK_Packet(pl, plen);
         GS_ResumeRx();
@@ -1199,9 +1201,9 @@ void GS_Print_Help(void)
     uart2_puts("\r\n=== GROUND STATION COMMANDS (1 packet per command) ===\r\n");
     uart2_puts("  1 / HK1         : Housekeeping telemetry request 1 (voltages+temps)\r\n");
     uart2_puts("  2 / HK2         : Housekeeping telemetry request 2 (currents+flags)\r\n");
-    uart2_puts("  3 / SNAP/CAMON  : Camera ON — real photo via UART (0xCA), downlink\r\n");
-    uart2_puts("  DUMMYCAM/DC     : Camera ON — dummy test JPEG downlink\r\n");
-    uart2_puts("  5 / CD / CAM    : Camera download (downlink stored photo)\r\n");
+    uart2_puts("  3 / SNAP/CAMON  : Real camera capture (stores to flash, NO downlink)\r\n");
+    uart2_puts("  DUMMYCAM / TC   : Dummy camera test downlink (53 04 CC 5E BE...)\r\n");
+    uart2_puts("  5 / CD / CAM    : Real camera data downlink (53 04 CC 5E BD...)\r\n");
     uart2_puts("  4 / D [cnt]     : Flash data request (cnt packets from address 0)\r\n");
     uart2_puts("  D ADDR CNT      : Flash data request (hex addr, decimal count)\r\n");
     uart2_puts("  P / PING        : Ping OBC\r\n");
@@ -1271,10 +1273,10 @@ void GS_Handle_Command_Line(const char *p)
         uart2_puts(">>> [UPLINK] HK2 request\r\n");
         SEND13(CMD_HK2);
     }
-    /* Camera ON — real camera mission */
+    /* Camera ON — real camera capture (stores to flash, NO downlink) */
     else if (strcmp(u, "3") == 0 || strcmp(u, "CAM ON") == 0 ||
              strcmp(u, "CAMON") == 0 || strcmp(u, "SNAP") == 0) {
-        uart2_puts(">>> [UPLINK] CAM ON (real camera via UART 0xCA, downlink JPEG)\r\n");
+        uart2_puts(">>> [UPLINK] REAL CAMERA CAPTURE (store to flash, NO downlink)\r\n");
         SEND13(CMD_CAMON);
     }
     /* Dummy camera test */
@@ -1283,16 +1285,19 @@ void GS_Handle_Command_Line(const char *p)
              strcmp(u, "DUMMY") == 0    || strcmp(u, "DUMMY CAM") == 0 ||
              strcmp(u, "DUMMY CAMERA") == 0 || strcmp(u, "DUMMY CAMERA DOWNLOAD") == 0 ||
              strcmp(u, "DUMMY CAM DOWNLOAD") == 0) {
-        uart2_puts(">>> [UPLINK] DUMMY CAMERA TEST (stored test image downlink)\r\n");
-        uint8_t dummy_cmd[13] = { 0x53, 0x04, 0xCC, 0x5E, 0xBE,
-                                  0x00, 0xD0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x45 };
-        SEND13(dummy_cmd);
+        uart2_puts(">>> [UPLINK] DUMMY CAMERA TEST (53 04 CC 5E BE 00 D0...)\r\n");
+        /* Reset camera reassembly state */
+        gs_cam_active   = false;
+        gs_cam_bytes    = 0;
+        gs_cam_pkt_recv = 0;
+        SEND13(CMD_DUMMYCAM);
     }
-    /* Camera download */
+    /* Real camera data downlink */
     else if (strcmp(u, "5") == 0 || strcmp(u, "CD") == 0 ||
              strcmp(u, "CAM") == 0 || strcmp(u, "CAMERA") == 0 ||
-             strcmp(u, "CAMDOWN") == 0 || strcmp(u, "CAM DOWNLOAD") == 0) {
-        uart2_puts(">>> [UPLINK] Camera download (downlink stored photo)\r\n");
+             strcmp(u, "CAMDOWN") == 0 || strcmp(u, "CAM DOWNLOAD") == 0 ||
+             strcmp(u, "RCAM") == 0 || strcmp(u, "REALCAM") == 0) {
+        uart2_puts(">>> [UPLINK] REAL CAMERA DATA DOWNLINK (53 04 CC 5E BD 00...)\r\n");
         /* Reset camera reassembly state */
         gs_cam_active   = false;
         gs_cam_bytes    = 0;
