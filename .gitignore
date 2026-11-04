@@ -23,3 +23,7 @@ generate_*.py
 merge_all_papers.py
 z.gitignore
 Ground_Station/GS_Telemetry_*.xlsx
+
+# Keep flashable images so clones can flash without a full rebuild
+!Ground_Station/gs_m0plus.bin
+!Satellite_M0+/Com_sat/satellite.bin

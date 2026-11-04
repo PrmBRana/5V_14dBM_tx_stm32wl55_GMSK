@@ -4,7 +4,7 @@
 ==============================================================================
 STM32WL55JC Ground Station - GMSK Command & Downlink Console
 Antarikchya Pratisthan Nepal - APN  |  अन्तरिक्ष प्रतिष्ठान नेपाल
-Location: /home/prem/Desktop/nuttxspace/Ground_Station/gs_communicator.py
+Location: Ground_Station/gs_communicator.py (portable — run from any clone of this repo)
 
 Talks to Ground Station firmware (gs_app.c / gs_main.c) over UART2 / ST-LINK VCP (115200 8N1).
 
@@ -52,8 +52,71 @@ try:
     import serial
     import serial.tools.list_ports
 except ImportError:
-    print("[ERROR] pyserial is required. Install with: pip3 install pyserial")
+    print("[ERROR] pyserial is required.")
+    print("        pip3 install -r requirements.txt")
+    print("        (from the Ground_Station folder of this repository)")
     sys.exit(1)
+
+
+def gui_display_available():
+    """True when a desktop is present (X11, Wayland, Windows, or macOS)."""
+    if sys.platform in ("win32", "darwin"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def is_usb_serial_device(device):
+    d = (device or "").replace("\\", "/").lower()
+    if sys.platform == "win32":
+        name = os.path.basename(d)
+        return name.startswith("com") or "com" in d
+    return any(token in d for token in (
+        "ttyusb", "ttyacm", "usbserial", "usbmodem", "cu.usb", "tty.usb",
+    ))
+
+
+def list_serial_ports():
+    """USB / ST-LINK / COM ports on Linux, macOS, and Windows (clone-safe)."""
+    found = []
+    seen = set()
+
+    def add(port):
+        if port and port not in seen:
+            seen.add(port)
+            found.append(port)
+
+    try:
+        for item in serial.tools.list_ports.comports():
+            add(item.device)
+    except Exception:
+        pass
+
+    if sys.platform != "win32":
+        for pattern in (
+            "/dev/ttyUSB*", "/dev/ttyACM*",
+            "/dev/tty.usb*", "/dev/cu.usb*",
+            "/dev/cu.usbserial*", "/dev/cu.usbmodem*",
+            "/dev/tty.usbserial*", "/dev/tty.usbmodem*",
+        ):
+            for path in glob.glob(pattern):
+                add(path)
+
+    usb = [p for p in found if is_usb_serial_device(p)]
+    other = [p for p in found if p not in usb and not p.startswith("/dev/ttyS")]
+    return usb + other
+
+
+def default_serial_port(preferred=None):
+    ports = list_serial_ports()
+    if preferred and preferred in ports:
+        return preferred
+    if ports:
+        return ports[0]
+    if sys.platform == "win32":
+        return "COM3"
+    if sys.platform == "darwin":
+        return "/dev/cu.usbmodem"
+    return "/dev/ttyUSB0"
 
 # ============================================================================
 # BRANDING & SATELLITE MISSION CONSTANTS
@@ -68,6 +131,8 @@ DEVANAGARI_FONTS = [
     "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
     "C:/Windows/Fonts/Nirmala.ttf",
     "C:/Windows/Fonts/mangal.ttf",
+    "/Library/Fonts/Nirmala.ttf",
+    "/System/Library/Fonts/Supplemental/DevanagariSangamMN.ttc",
 ]
 
 
@@ -1307,24 +1372,14 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
     port_combo.pack(side=tk.LEFT, padx=4)
 
     def refresh_ports():
-        all_p = [p.device for p in serial.tools.list_ports.comports()]
-        # Prioritize real USB/ACM serial devices over PC motherboard /dev/ttyS* ports
-        usb_ports = [p for p in all_p if "ttyUSB" in p or "ttyACM" in p]
-        if not usb_ports:
-            usb_ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
-        other_ports = [p for p in all_p if p not in usb_ports and not p.startswith("/dev/ttyS")]
-        ports = usb_ports + other_ports
-        if not ports:
-            ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*") + ["/dev/ttyUSB0", "/dev/ttyACM0"]
-        # Remove duplicates while preserving order
-        seen = set()
-        dedup_ports = [x for x in ports if not (x in seen or seen.add(x))]
+        dedup_ports = list_serial_ports()
+        if not dedup_ports:
+            fallback = default_serial_port(default_port)
+            dedup_ports = [fallback]
         port_combo["values"] = dedup_ports
         if default_port and default_port in dedup_ports:
             port_var.set(default_port)
-        elif usb_ports and usb_ports[0] in dedup_ports:
-            port_var.set(usb_ports[0])
-        elif port_var.get() not in dedup_ports and dedup_ports:
+        elif port_var.get() not in dedup_ports:
             port_var.set(dedup_ports[0])
 
     refresh_ports()
@@ -3312,7 +3367,7 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
     append_log(f" Downlink RX : {RX_FREQ_STR}\n", "info")
     append_log(f" Uplink TX   : {TX_FREQ_STR}\n", "info")
     append_log(" STM32WL55JC2 Ground Station Radio Interface Ready (RFO_HP +22 dBm).\n", "info")
-    append_log(" Auto-detected port: Connect to /dev/ttyUSB0 to receive live satellite downlink.\n", "info")
+    append_log(f" Auto-detected port: Connect to {default_serial_port(default_port)} to receive live satellite downlink.\n", "info")
     append_log("=" * 76 + "\n", "info")
 
     def on_closing():
@@ -3337,11 +3392,7 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
 
 def run_cli(port=None, baudrate=115200, pa="HP"):
     if not port:
-        all_p = [p.device for p in serial.tools.list_ports.comports()]
-        usb_ports = [p for p in all_p if "ttyUSB" in p or "ttyACM" in p]
-        if not usb_ports:
-            usb_ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
-        port = usb_ports[0] if usb_ports else "/dev/ttyUSB0"
+        port = default_serial_port()
 
     print("=" * 72)
     print(f"{ORG_NE}  |  {ORG_EN}")
@@ -3430,7 +3481,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(
         description="STM32WL55 Ground Station - GMSK Command & Downlink Console")
     ap.add_argument("-p", "--port", default=None,
-                    help="Serial port (e.g. /dev/ttyACM0)")
+                    help="Serial port (e.g. /dev/ttyUSB0, /dev/ttyACM0, COM3)")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("--cli", action="store_true",
                     help="Force command-line interface mode")
@@ -3438,7 +3489,7 @@ if __name__ == "__main__":
                     help="Uplink PA path: HP = RFO_HP +22 dBm, LP = RFO_LP +14 dBm")
     a = ap.parse_args()
 
-    if a.cli or not (os.environ.get("DISPLAY") or sys.platform in ("win32", "darwin")):
+    if a.cli or not gui_display_available():
         run_cli(a.port, a.baud, a.pa)
     else:
         run_gui(a.port, a.baud, a.pa)

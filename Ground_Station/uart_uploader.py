@@ -4,7 +4,7 @@
 ==============================================================================
 STM32WL55 Ground Station UART Telecommand & Telemetry Console / Uploader
 Antarikchya Pratisthan Nepal  |  अन्तरिक्ष प्रतिष्ठान नेपाल
-Location: /home/prem/Desktop/nuttxspace/Ground_Station/uart_uploader.py
+Location: Ground_Station/uart_uploader.py (portable — run from any clone of this repo)
 
 Direct serial interface to STM32WL55 Ground Station firmware (gs_main.c)
 via ST-LINK Virtual COM Port (PA2/PA3 LPUART1 @ 115200 8N1).
@@ -26,7 +26,7 @@ try:
     import serial
     import serial.tools.list_ports
 except ImportError:
-    print("[ERROR] pyserial is required. Install with: pip3 install pyserial")
+    print("[ERROR] pyserial is required. Install with: pip3 install -r requirements.txt")
     sys.exit(1)
 
 # Protocol Constants
@@ -64,11 +64,39 @@ PRESET_COMMANDS = {
 }
 
 def auto_detect_port():
-    """Detect available ST-Link or USB serial ports."""
-    ports = [p.device for p in serial.tools.list_ports.comports()]
-    if not ports:
-        ports = glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*")
-    return ports[0] if ports else "/dev/ttyACM0"
+    """Detect ST-Link / USB serial ports on Linux, macOS, and Windows."""
+    ports = []
+    seen = set()
+
+    def add(p):
+        if p and p not in seen:
+            seen.add(p)
+            ports.append(p)
+
+    try:
+        for item in serial.tools.list_ports.comports():
+            add(item.device)
+    except Exception:
+        pass
+    if sys.platform != "win32":
+        for pattern in (
+            "/dev/ttyUSB*", "/dev/ttyACM*",
+            "/dev/cu.usb*", "/dev/tty.usb*",
+            "/dev/cu.usbserial*", "/dev/cu.usbmodem*",
+        ):
+            for path in glob.glob(pattern):
+                add(path)
+    usb = [p for p in ports if any(t in p.lower().replace("\\", "/") for t in
+                                   ("ttyusb", "ttyacm", "usbserial", "usbmodem", "cu.usb", "tty.usb"))
+           or (sys.platform == "win32" and "com" in p.lower())]
+    chosen = usb or [p for p in ports if not p.startswith("/dev/ttyS")] or ports
+    if chosen:
+        return chosen[0]
+    if sys.platform == "win32":
+        return "COM3"
+    if sys.platform == "darwin":
+        return "/dev/cu.usbmodem"
+    return "/dev/ttyACM0"
 
 def build_flash_cmd(start_addr, num_pkts):
     """Build 13-Byte Telecommand: 53 01 1D D1 F2 00 00 [ADDR:4B] [PKTS:2B]"""

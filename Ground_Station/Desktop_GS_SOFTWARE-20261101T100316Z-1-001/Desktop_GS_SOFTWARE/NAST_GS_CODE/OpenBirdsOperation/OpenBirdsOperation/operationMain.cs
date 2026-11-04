@@ -88,6 +88,29 @@ namespace OpenBirdsOperation
 
         public string call_sign;
 
+        private static string FindRepoDataFile(params string[] relativeCandidates)
+        {
+            var bases = new List<string>();
+            try { bases.Add(AppDomain.CurrentDomain.BaseDirectory); } catch { }
+            try { bases.Add(Path.GetDirectoryName(Application.ExecutablePath)); } catch { }
+            try { bases.Add(Directory.GetCurrentDirectory()); } catch { }
+
+            foreach (var root in bases)
+            {
+                if (string.IsNullOrEmpty(root)) continue;
+                foreach (var rel in relativeCandidates)
+                {
+                    try
+                    {
+                        string p = Path.GetFullPath(Path.Combine(root, rel.Replace('\\', Path.DirectorySeparatorChar)));
+                        if (File.Exists(p)) return p;
+                    }
+                    catch { }
+                }
+            }
+            return null;
+        }
+
         List<Tle> tleList;
 
         Tle selectedTle;
@@ -396,34 +419,26 @@ namespace OpenBirdsOperation
             tlePath = Properties.Settings.Default.tlePath;
             if (string.IsNullOrEmpty(tlePath) || !File.Exists(tlePath))
             {
-                string[] candTle = new string[] {
+                tlePath = FindRepoDataFile(
                     "Utils/TLE/TLE.txt",
                     "../Utils/TLE/TLE.txt",
                     "../../Utils/TLE/TLE.txt",
                     "../../../Utils/TLE/TLE.txt",
                     "../../../../Utils/TLE/TLE.txt"
-                };
-                foreach (var c in candTle)
-                {
-                    if (File.Exists(c)) { tlePath = Path.GetFullPath(c); break; }
-                }
+                ) ?? tlePath;
             }
             tlePathTextBox.Text = tlePath;
 
             freqPath = Properties.Settings.Default.freqPath;
             if (string.IsNullOrEmpty(freqPath) || !File.Exists(freqPath))
             {
-                string[] candFreq = new string[] {
+                freqPath = FindRepoDataFile(
                     "Utils/frequency_list/FreqList.csv",
                     "../Utils/frequency_list/FreqList.csv",
                     "../../Utils/frequency_list/FreqList.csv",
                     "../../../Utils/frequency_list/FreqList.csv",
                     "../../../../Utils/frequency_list/FreqList.csv"
-                };
-                foreach (var c in candFreq)
-                {
-                    if (File.Exists(c)) { freqPath = Path.GetFullPath(c); break; }
-                }
+                ) ?? freqPath;
             }
             freqPathTextBox.Text = freqPath;
 

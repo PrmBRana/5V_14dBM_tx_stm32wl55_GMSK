@@ -244,6 +244,18 @@ $$\mathbf{CW\;(90s)} \longrightarrow \mathbf{B1\;(Once)} \longrightarrow \mathbf
 
 ## 8. Ground Station (GS) Mode
 
+Python GUI (works after a fresh clone — no `/home/prem` paths):
+
+```bash
+cd Ground_Station
+sudo apt install python3 python3-pip python3-tk   # Debian/Ubuntu
+pip3 install -r requirements.txt
+python3 gs_communicator.py
+# or: ./run_gs_python.sh
+```
+
+See [Ground_Station/README.md](Ground_Station/README.md) for Windows/macOS serial ports and the desktop GS launcher.
+
 The same codebase can be compiled into dedicated Ground Station firmware (`gs_m0plus.bin`):
 
 - **Continuous Listening**: Listens on **`435.000 MHz`** for incoming satellite transmissions.
@@ -269,7 +281,7 @@ The same codebase can be compiled into dedicated Ground Station firmware (`gs_m0
 ### Getting the Code
 
 ```bash
-git clone <this-repo-url> nuttxspace
+git clone https://github.com/PrmBRana/5V_14dBM_tx_stm32wl55_GMSK.git nuttxspace
 cd nuttxspace
 ```
 
