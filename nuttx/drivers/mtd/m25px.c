@@ -536,6 +536,7 @@ static inline int m25p_readid(struct m25p_dev_s *priv)
 static void m25p_waitwritecomplete(struct m25p_dev_s *priv)
 {
   uint8_t status;
+  int retries = 5000; /* Max 5 seconds timeout */
 
   /* Loop as long as the memory is busy with a write cycle */
 
@@ -570,6 +571,12 @@ static void m25p_waitwritecomplete(struct m25p_dev_s *priv)
           m25p_unlock(priv->dev);
           nxsched_usleep(1000);
           m25p_lock(priv->dev);
+
+          if (--retries <= 0)
+            {
+              ferr("ERROR: Timeout waiting for write complete (status: 0x%02x)\n", status);
+              break;
+            }
         }
     }
   while ((status & M25P_SR_WIP) != 0);

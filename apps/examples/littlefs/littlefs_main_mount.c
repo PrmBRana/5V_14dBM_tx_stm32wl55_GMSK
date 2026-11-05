@@ -520,6 +520,9 @@ static int mount_drive(FAR const char *dev_path, FAR const char *mount_path)
 
   printf("Mounting drive %s to %s...\n", dev_path, mount_path);
 
+  /* Ensure parent /mnt mount point exists in VFS */
+  mkdir("/mnt", 0777);
+
   /* 1. Create the mount directory if it doesn't already exist */
   if (stat(mount_path, &st) != 0)
     {
@@ -940,11 +943,12 @@ static int littlefs_telemetry_daemon(void)
   ret = mount_drive("/dev/hk", "/mnt/hk");
   if (ret != OK)
     {
-      printf("[LITTLEFS DAEMON] ERROR: mount_drive(/dev/hk) failed!\n");
-      return ret;
+      printf("[LITTLEFS DAEMON] WARNING: mount_drive(/dev/hk) returned %d (storage offline)\n", ret);
     }
-
-  printf("[LITTLEFS DAEMON] Ready! /mnt/hk mounted successfully!\n");
+  else
+    {
+      printf("[LITTLEFS DAEMON] Ready! /mnt/hk mounted successfully!\n");
+    }
 
   /* 2. Mount Camera Partition: /dev/camera (64 MB) to /mnt/camera */
   ret = mount_drive("/dev/camera", "/mnt/camera");

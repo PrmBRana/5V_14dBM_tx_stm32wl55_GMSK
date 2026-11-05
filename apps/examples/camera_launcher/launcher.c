@@ -121,7 +121,22 @@ int launcher_main(int argc, char *argv[])
       printf("[LAUNCHER] [IPC] WARNING: Cortex-M0+ handshake timeout (proceeding with OBC bring-up).\n");
     }
 
-  /* 3. Launch OBC Main Sensor Acquisition Task */
+  /* 3. Launch LittleFS Telemetry Storage Task (Stack: 4096 Bytes for format/mount headroom) */
+  printf("[LAUNCHER] Spawning LittleFS storage daemon...\n");
+  littlefs_pid = task_create("littlefs", 100, 4096, littlefs_main, NULL);
+  if (littlefs_pid < 0)
+    {
+      printf("[LAUNCHER] ERROR: Failed to start LittleFS daemon (ret: %d, errno: %d)\n", littlefs_pid, errno);
+    }
+  else
+    {
+      printf("[LAUNCHER] LittleFS daemon running (PID: %d)\n", littlefs_pid);
+    }
+
+  /* Allow filesystem mount and ring buffer consumer to settle before telemetry acquisition */
+  usleep(150000);
+
+  /* 4. Launch OBC Main Sensor Acquisition Task */
   printf("[LAUNCHER] Spawning OBC Main sensor acquisition task...\n");
   obc_pid = task_create("obc_main", CONFIG_EXAMPLES_OBC_MAIN_PRIORITY,
                         CONFIG_EXAMPLES_OBC_MAIN_STACKSIZE,
@@ -135,19 +150,7 @@ int launcher_main(int argc, char *argv[])
       printf("[LAUNCHER] OBC Main task running (PID: %d)\n", obc_pid);
     }
 
-  /* 3. Launch LittleFS Telemetry Storage Task (Stack: 2048 Bytes) */
-  printf("[LAUNCHER] Spawning LittleFS storage daemon...\n");
-  littlefs_pid = task_create("littlefs", 100, 2048, littlefs_main, NULL);
-  if (littlefs_pid < 0)
-    {
-      printf("[LAUNCHER] ERROR: Failed to start LittleFS daemon (ret: %d, errno: %d)\n", littlefs_pid, errno);
-    }
-  else
-    {
-      printf("[LAUNCHER] LittleFS daemon running (PID: %d)\n", littlefs_pid);
-    }
-
-  /* 4. Launch Camera Task (if configured) */
+  /* 5. Launch Camera Task (if configured) */
 #if defined(CONFIG_EXAMPLES_CAMERA_MSN2)
   printf("[LAUNCHER] Spawning Camera MSN2 capture task...\n");
   cam_pid = task_create("camera", 100, 2048, camera_MSN2_main, NULL);
