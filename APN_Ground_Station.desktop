@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Antarikchya Pratisthan Nepal GS
+Comment=All-in-One Ground Station Mission Operations Console
+Exec=/home/prem/Desktop/nuttxspace/Run_GS_Linux.sh
+Icon=/home/prem/Desktop/nuttxspace/Ground_Station/antarikshya_logo.png
+Path=/home/prem/Desktop/nuttxspace
+Terminal=false
+Categories=Development;Engineering;Science;
+StartupNotify=true

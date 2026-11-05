@@ -192,28 +192,20 @@ namespace OpenBirdsOperation
         {
             tabControl1.SelectedIndex = 0;
 
-            string[] candidatePaths = new string[] {
-                "Utils/command_list/Slipper2Sat_CMD_LIST.csv",
-                "../Utils/command_list/Slipper2Sat_CMD_LIST.csv",
-                "../../Utils/command_list/Slipper2Sat_CMD_LIST.csv",
-                "../../../Utils/command_list/Slipper2Sat_CMD_LIST.csv",
-                "../../../../Utils/command_list/Slipper2Sat_CMD_LIST.csv",
-                "Slipper2Sat_CMD_LIST.csv"
-            };
-
             bool loaded = false;
-            foreach (var path in candidatePaths)
+            string resolvedCsv = operationMain.FindRepoDataFile(
+                "Utils/command_list/Slipper2Sat_CMD_LIST.csv",
+                "Slipper2Sat_CMD_LIST.csv"
+            );
+
+            if (!string.IsNullOrEmpty(resolvedCsv) && File.Exists(resolvedCsv))
             {
-                if (File.Exists(path))
+                try
                 {
-                    try
-                    {
-                        LoadCommandFile(path);
-                        loaded = true;
-                        break;
-                    }
-                    catch { }
+                    LoadCommandFile(resolvedCsv);
+                    loaded = true;
                 }
+                catch { }
             }
 
             if (!loaded || dataGridView1.Rows.Count <= 1)

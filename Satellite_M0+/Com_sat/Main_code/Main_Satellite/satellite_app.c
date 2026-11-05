@@ -1394,13 +1394,13 @@ void Satellite_Send_HK_Combined_Packet(const int16_t b1[5], const int16_t b2[5])
     adc2[7]  = (int16_t)15;                          /* SP4 Current */
     adc2[8]  = (int16_t)15;                          /* SP5 Current */
     adc2[9]  = (int16_t)85;                          /* Raw Bus Current */
-    adc2[10] = (int16_t)1;                           /* Status Flag 1 */
-    adc2[11] = (int16_t)0;                           /* Status Flag 2 */
+    adc2[10] = (b2[3] != 0) ? b2[3] : (int16_t)1;   /* Status Flag 1 */
+    adc2[11] = (b2[4] != 0) ? b2[4] : (int16_t)0;   /* Status Flag 2 */
 
     /* --- IMU: 6 Channels (Gyro & Mag, Bytes 58..69) --- */
     int16_t *imu = (int16_t *)&pkt[58];
-    imu[0]  = (b2[3] != 0) ? b2[3] : (int16_t)-12;   /* Gyro X: -12 c-dps (signed) */
-    imu[1]  = (b2[4] != 0) ? b2[4] : (int16_t)24;    /* Gyro Y: +24 c-dps (signed) */
+    imu[0]  = (int16_t)-12;                          /* Gyro X: -12 c-dps (signed) */
+    imu[1]  = (int16_t)24;                           /* Gyro Y: +24 c-dps (signed) */
     imu[2]  = (int16_t)8;                            /* Gyro Z: +8 c-dps (signed) */
     imu[3]  = (int16_t)320;                          /* Mag X: +320 uT (signed) */
     imu[4]  = (int16_t)110;                          /* Mag Y: +110 uT (signed) */
@@ -1482,7 +1482,7 @@ void Satellite_Send_Flash_Chunk(
 
     Satellite_Send_Packet(frame, FLASH_PKT_TOTAL_LEN);
 
-    CPU2_Delay_Ms(500); /* pacing so GS finishes CAMERA/FLASH JSON and re-arms RX */
+    CPU2_Delay_Ms(40); /* fast pacing so GS finishes UART processing without packet loss */
 }
 
 void Satellite_Handle_Flash_Read(
@@ -1504,7 +1504,7 @@ void Satellite_Handle_Flash_Read(
         flash_req_send(start_addr, num_pkts);
     }
 
-    static const uint32_t CHUNK_TIMEOUT_MS = 3000U;
+    static const uint32_t CHUNK_TIMEOUT_MS = 60U;
     bool ipc_active = (SHARED_FLASH_DATA->magic == FLASH_DATA_MAGIC);
 
     for (uint16_t p = 0; p < num_pkts; p++)
@@ -1529,8 +1529,8 @@ void Satellite_Handle_Flash_Read(
                     }
                     break;
                 }
-                CPU2_Delay_Ms(10);
-                waited_ms += 10;
+                CPU2_Delay_Ms(2);
+                waited_ms += 2;
             }
 
             if (got_chunk)
@@ -1696,9 +1696,11 @@ void Satellite_Send_Camera_Image(uint16_t expected_chunks, bool local_dummy)
         }
         else
         {
-            uart1_printf("[M0+ CAMERA] WARNING: no M4 chunk for pkt %u/%u (ring empty)\r\n",
+            /* M4 is not supplying data: stop instead of downlinking empty
+             * (all-zero) frames with a 4 s wait each. */
+            uart1_printf("[M0+ CAMERA] ABORT: no M4 chunk for pkt %u/%u (ring empty)\r\n",
                          p + 1, total_chunks);
-            memset(&frame[CAM_PKT_HDR_LEN], 0x00, CAM_DATA_LEN);
+            break;
         }
 
         uint16_t crc = hk_crc16(frame, CAM_PKT_HDR_LEN + CAM_DATA_LEN);
@@ -1711,7 +1713,7 @@ void Satellite_Send_Camera_Image(uint16_t expected_chunks, bool local_dummy)
 
         Satellite_Send_Packet(frame, CAM_PKT_TOTAL_LEN);
 
-        CPU2_Delay_Ms(500); /* keep 5V PA biased; pace GS UART JSON */
+        CPU2_Delay_Ms(40); /* fast pacing: keeps 5V PA biased while allowing GS rapid capture */
     }
 
     Satellite_GMSK_Stop();

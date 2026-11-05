@@ -1,5 +1,11 @@
 #include "ring_buffer.h"
+#include <stdio.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/mount.h>
 #include <nuttx/mutex.h>
 
 /*
@@ -20,15 +26,20 @@
 
 static struct ring_buffer_s g_rb;
 static mutex_t              g_rb_lock;
+static bool                 g_rb_initialized = false;
 
 /* ------------------------------------------------------------------ */
 void rb_init(void)
 {
-  memset(&g_rb, 0, sizeof(g_rb));
-  g_rb.wr_ptr = 0;
-  g_rb.rd_ptr = 0;
-  g_rb.count  = 0;
-  nxmutex_init(&g_rb_lock);
+  if (!g_rb_initialized)
+    {
+      memset(&g_rb, 0, sizeof(g_rb));
+      g_rb.wr_ptr = 0;
+      g_rb.rd_ptr = 0;
+      g_rb.count  = 0;
+      nxmutex_init(&g_rb_lock);
+      g_rb_initialized = true;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -187,4 +198,163 @@ int telemetry_rb_count(void)
   int c = (int)g_telemetry_rb.count;
   nxmutex_unlock(&g_telem_lock);
   return c;
+}
+
+/* ========================================================================= */
+/* Camera Ring Buffer -> Flash CAM Partition (/mnt/camera) Consumer Helpers  */
+/* ========================================================================= */
+
+static mutex_t g_cam_flash_lock = NXMUTEX_INITIALIZER;
+static int     g_cam_fd[3]      = { -1, -1, -1 };
+static size_t  g_cam_written[3] = { 0, 0, 0 };
+static bool    g_cam_mounted    = false;
+
+int ensure_camera_partition_mounted(void)
+{
+  struct stat st;
+
+  if (g_cam_mounted && stat("/mnt/camera", &st) == 0)
+    {
+      return 0;
+    }
+
+  if (stat("/mnt/camera", &st) != 0)
+    {
+      mkdir("/mnt/camera", 0777);
+    }
+
+  int ret = mount("/dev/camera", "/mnt/camera", "littlefs", 0, "autoformat");
+  if (ret < 0)
+    {
+      int err = errno;
+      if (err == EBUSY || err == EEXIST || err == ENOTDIR)
+        {
+          g_cam_mounted = true;
+          return 0;
+        }
+
+      if (stat("/dev/camera", &st) == 0)
+        {
+          printf("[LITTLEFS CAM] WARN: autoformat /dev/camera failed (errno=%d), trying forceformat...\n", err);
+          ret = mount("/dev/camera", "/mnt/camera", "littlefs", 0, "forceformat");
+          if (ret == 0 || errno == EBUSY || errno == EEXIST || errno == ENOTDIR)
+            {
+              g_cam_mounted = true;
+              return 0;
+            }
+          err = errno;
+        }
+      return -err;
+    }
+
+  g_cam_mounted = true;
+  return 0;
+}
+
+void cam_rb_drain_to_flash(void)
+{
+  struct image_chunk_s chunk;
+
+  if (rb_empty())
+    {
+      return;
+    }
+
+  nxmutex_lock(&g_cam_flash_lock);
+  ensure_camera_partition_mounted();
+
+  while (rb_read(&chunk) == 0)
+    {
+      uint32_t fid = (chunk.frame_id == 2) ? 2 : 1;
+      const char *path = (fid == 2) ? "/mnt/camera/capture_02.raw"
+                                    : "/mnt/camera/capture_01.raw";
+
+      if (chunk.is_meta)
+        {
+          if (g_cam_fd[fid] >= 0)
+            {
+              fsync(g_cam_fd[fid]);
+              close(g_cam_fd[fid]);
+              g_cam_fd[fid] = -1;
+            }
+          g_cam_written[fid] = 0;
+          g_cam_fd[fid] = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+          if (g_cam_fd[fid] < 0)
+            {
+              g_cam_mounted = false;
+              umount("/mnt/camera");
+              mount("/dev/camera", "/mnt/camera", "littlefs", 0, "forceformat");
+              g_cam_mounted = true;
+              g_cam_fd[fid] = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            }
+          continue;
+        }
+
+      if (g_cam_fd[fid] < 0)
+        {
+          g_cam_fd[fid] = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
+          if (g_cam_fd[fid] < 0)
+            {
+              g_cam_mounted = false;
+              umount("/mnt/camera");
+              mount("/dev/camera", "/mnt/camera", "littlefs", 0, "forceformat");
+              g_cam_mounted = true;
+              g_cam_fd[fid] = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
+            }
+        }
+
+      if (g_cam_fd[fid] >= 0 && chunk.len > 0)
+        {
+          ssize_t w = write(g_cam_fd[fid], chunk.data, chunk.len);
+          if (w < 0)
+            {
+              close(g_cam_fd[fid]);
+              g_cam_mounted = false;
+              umount("/mnt/camera");
+              mount("/dev/camera", "/mnt/camera", "littlefs", 0, "forceformat");
+              g_cam_mounted = true;
+              g_cam_fd[fid] = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+              if (g_cam_fd[fid] >= 0)
+                {
+                  w = write(g_cam_fd[fid], chunk.data, chunk.len);
+                }
+            }
+          if (w > 0)
+            {
+              g_cam_written[fid] += (size_t)w;
+            }
+        }
+
+      if (chunk.is_last)
+        {
+          if (g_cam_fd[fid] >= 0)
+            {
+              fsync(g_cam_fd[fid]);
+              close(g_cam_fd[fid]);
+              g_cam_fd[fid] = -1;
+            }
+          struct stat st;
+          long disk_sz = (stat(path, &st) == 0) ? (long)st.st_size : -1L;
+          printf("[LITTLEFS CAM] Stored Image %lu -> %s (%u B written, %ld B verified in Flash CAM partition)\n",
+                 (unsigned long)fid, path, (unsigned)g_cam_written[fid], disk_sz);
+        }
+    }
+
+  nxmutex_unlock(&g_cam_flash_lock);
+}
+
+void cam_rb_close_all_files(void)
+{
+  cam_rb_drain_to_flash();
+  nxmutex_lock(&g_cam_flash_lock);
+  for (int fid = 1; fid <= 2; fid++)
+    {
+      if (g_cam_fd[fid] >= 0)
+        {
+          fsync(g_cam_fd[fid]);
+          close(g_cam_fd[fid]);
+          g_cam_fd[fid] = -1;
+        }
+    }
+  nxmutex_unlock(&g_cam_flash_lock);
 }

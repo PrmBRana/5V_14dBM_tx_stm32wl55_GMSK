@@ -95,6 +95,15 @@ namespace OpenBirdsOperation
             }
         }
 
+        private void btn_tx_capture_cam_Click(object sender, EventArgs e)
+        {
+            if (formMain != null)
+            {
+                groupBox1.Text = "Image Parser — Capturing Real Camera Photos to Flash (CAMON)...";
+                formMain.TransmitRealCameraCaptureCommand();
+            }
+        }
+
         private void button_cam_paraser_ok_Click(object sender, EventArgs e)
         {
             if (!string.IsNullOrWhiteSpace(rTBox_cam_raw_data.Text))

@@ -221,6 +221,10 @@
 #define M25P_DP        0xb9  /* 2 Deep power down           0   0     0     */
 #define M25P_RES       0xab  /* 2 Read Electronic Signature 0   3     >=1   */
 #define M25P_SSE       0x20  /* 3 Sub-Sector Erase          0   0     0     */
+#define M25P_READ_4B   0x13  /* 4 4-Byte Read Data Bytes    4   0     >=1   */
+#define M25P_PP_4B     0x12  /* 4 4-Byte Page Program       4   0     1-256 */
+#define M25P_SE_4B     0xdc  /* 4 4-Byte Sector Erase       4   0     0     */
+#define M25P_SSE_4B    0x21  /* 4 4-Byte Sub-Sector Erase   4   0     0     */
 
 /* NOTE 1: All parts.
  * NOTE 2: M25P632/M25P64
@@ -634,18 +638,26 @@ static void m25p_sectorerase(struct m25p_dev_s *priv,
 
   /* Send the "Sector Erase (SE)" or Sub-Sector Erase (SSE) instruction
    * that was passed in as the erase type.
+   * For devices larger than 16 MB (npages > 65536, e.g. MT25Q256 / MT25Q1G),
+   * use 4-byte address opcodes so partitions above 16 MB (like /dev/camera
+   * at 0x04000000) do not wrap around to 0x00000000.
    */
 
-  SPI_SEND(priv->dev, type);
-
-  /* Send the sector offset high byte first.  For all of the supported
-   * parts, the sector number is completely contained in the first byte
-   * and the values used in the following two bytes don't really matter.
-   */
-
-  SPI_SEND(priv->dev, (offset >> 16) & 0xff);
-  SPI_SEND(priv->dev, (offset >> 8) & 0xff);
-  SPI_SEND(priv->dev, offset & 0xff);
+  if (priv->npages > 65536)
+    {
+      SPI_SEND(priv->dev, (type == M25P_SSE) ? M25P_SSE_4B : M25P_SE_4B);
+      SPI_SEND(priv->dev, (offset >> 24) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
+  else
+    {
+      SPI_SEND(priv->dev, type);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
 
   /* Deselect the FLASH */
 
@@ -716,15 +728,23 @@ static inline void m25p_pagewrite(struct m25p_dev_s *priv,
 
   SPI_SELECT(priv->dev, SPIDEV_FLASH(0), true);
 
-  /* Send "Page Program (PP)" command */
+  /* Send "Page Program (PP)" command and page offset */
 
-  SPI_SEND(priv->dev, M25P_PP);
-
-  /* Send the page offset high byte first. */
-
-  SPI_SEND(priv->dev, (offset >> 16) & 0xff);
-  SPI_SEND(priv->dev, (offset >> 8) & 0xff);
-  SPI_SEND(priv->dev, offset & 0xff);
+  if (priv->npages > 65536)
+    {
+      SPI_SEND(priv->dev, M25P_PP_4B);
+      SPI_SEND(priv->dev, (offset >> 24) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
+  else
+    {
+      SPI_SEND(priv->dev, M25P_PP);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
 
   /* Then write the specified number of bytes */
 
@@ -764,15 +784,23 @@ static inline void m25p_bytewrite(struct m25p_dev_s *priv,
 
   SPI_SELECT(priv->dev, SPIDEV_FLASH(0), true);
 
-  /* Send "Page Program (PP)" command */
+  /* Send "Page Program (PP)" command and page offset */
 
-  SPI_SEND(priv->dev, M25P_PP);
-
-  /* Send the page offset high byte first. */
-
-  SPI_SEND(priv->dev, (offset >> 16) & 0xff);
-  SPI_SEND(priv->dev, (offset >> 8) & 0xff);
-  SPI_SEND(priv->dev, offset & 0xff);
+  if (priv->npages > 65536)
+    {
+      SPI_SEND(priv->dev, M25P_PP_4B);
+      SPI_SEND(priv->dev, (offset >> 24) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
+  else
+    {
+      SPI_SEND(priv->dev, M25P_PP);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
 
   /* Then write the specified number of bytes */
 
@@ -940,15 +968,23 @@ static ssize_t m25p_read(FAR struct mtd_dev_s *dev,
 
   SPI_SELECT(priv->dev, SPIDEV_FLASH(0), true);
 
-  /* Send "Read from Memory" instruction */
+  /* Send "Read from Memory" instruction and page offset */
 
-  SPI_SEND(priv->dev, M25P_READ);
-
-  /* Send the page offset high byte first. */
-
-  SPI_SEND(priv->dev, (offset >> 16) & 0xff);
-  SPI_SEND(priv->dev, (offset >> 8) & 0xff);
-  SPI_SEND(priv->dev, offset & 0xff);
+  if (priv->npages > 65536)
+    {
+      SPI_SEND(priv->dev, M25P_READ_4B);
+      SPI_SEND(priv->dev, (offset >> 24) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
+  else
+    {
+      SPI_SEND(priv->dev, M25P_READ);
+      SPI_SEND(priv->dev, (offset >> 16) & 0xff);
+      SPI_SEND(priv->dev, (offset >> 8) & 0xff);
+      SPI_SEND(priv->dev, offset & 0xff);
+    }
 
   /* Then read all of the requested bytes */
 

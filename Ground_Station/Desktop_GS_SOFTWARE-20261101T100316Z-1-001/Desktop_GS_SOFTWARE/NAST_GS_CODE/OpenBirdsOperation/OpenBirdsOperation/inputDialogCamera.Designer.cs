@@ -55,6 +55,7 @@ namespace OpenBirdsOperation
             this.btn_save_actual_log = new System.Windows.Forms.Button();
             this.btn_tx_dummy_cam = new System.Windows.Forms.Button();
             this.btn_tx_real_cam = new System.Windows.Forms.Button();
+            this.btn_tx_capture_cam = new System.Windows.Forms.Button();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox_img)).BeginInit();
             this.SuspendLayout();
@@ -183,13 +184,28 @@ namespace OpenBirdsOperation
             // 
             this.btn_save_actual_log.Anchor = System.Windows.Forms.AnchorStyles.Right;
             this.btn_save_actual_log.Font = new System.Drawing.Font("MS UI Gothic", 10.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btn_save_actual_log.Location = new System.Drawing.Point(630, 131);
+            this.btn_save_actual_log.Location = new System.Drawing.Point(630, 128);
             this.btn_save_actual_log.Name = "btn_save_actual_log";
-            this.btn_save_actual_log.Size = new System.Drawing.Size(90, 42);
+            this.btn_save_actual_log.Size = new System.Drawing.Size(90, 28);
             this.btn_save_actual_log.TabIndex = 10;
             this.btn_save_actual_log.Text = "Save RGB LOG";
             this.btn_save_actual_log.UseVisualStyleBackColor = true;
             this.btn_save_actual_log.Click += new System.EventHandler(this.btn_save_actual_log_Click);
+            // 
+            // btn_tx_capture_cam
+            // 
+            this.btn_tx_capture_cam.Anchor = System.Windows.Forms.AnchorStyles.Right;
+            this.btn_tx_capture_cam.BackColor = System.Drawing.Color.FromArgb(217, 119, 6);
+            this.btn_tx_capture_cam.ForeColor = System.Drawing.Color.White;
+            this.btn_tx_capture_cam.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btn_tx_capture_cam.Font = new System.Drawing.Font("MS UI Gothic", 8.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btn_tx_capture_cam.Location = new System.Drawing.Point(630, 158);
+            this.btn_tx_capture_cam.Name = "btn_tx_capture_cam";
+            this.btn_tx_capture_cam.Size = new System.Drawing.Size(90, 26);
+            this.btn_tx_capture_cam.TabIndex = 13;
+            this.btn_tx_capture_cam.Text = "Capture (CAMON)";
+            this.btn_tx_capture_cam.UseVisualStyleBackColor = false;
+            this.btn_tx_capture_cam.Click += new System.EventHandler(this.btn_tx_capture_cam_Click);
             // 
             // btn_tx_real_cam
             // 
@@ -197,10 +213,10 @@ namespace OpenBirdsOperation
             this.btn_tx_real_cam.BackColor = System.Drawing.Color.FromArgb(13, 148, 136);
             this.btn_tx_real_cam.ForeColor = System.Drawing.Color.White;
             this.btn_tx_real_cam.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btn_tx_real_cam.Font = new System.Drawing.Font("MS UI Gothic", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btn_tx_real_cam.Location = new System.Drawing.Point(630, 175);
+            this.btn_tx_real_cam.Font = new System.Drawing.Font("MS UI Gothic", 9.0F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btn_tx_real_cam.Location = new System.Drawing.Point(630, 186);
             this.btn_tx_real_cam.Name = "btn_tx_real_cam";
-            this.btn_tx_real_cam.Size = new System.Drawing.Size(90, 38);
+            this.btn_tx_real_cam.Size = new System.Drawing.Size(90, 27);
             this.btn_tx_real_cam.TabIndex = 12;
             this.btn_tx_real_cam.Text = "TX Cam (CAM)";
             this.btn_tx_real_cam.UseVisualStyleBackColor = false;
@@ -226,6 +242,7 @@ namespace OpenBirdsOperation
             this.AllowDrop = true;
             this.ClientSize = new System.Drawing.Size(736, 586);
             this.ControlBox = false;
+            this.Controls.Add(this.btn_tx_capture_cam);
             this.Controls.Add(this.btn_tx_real_cam);
             this.Controls.Add(this.btn_tx_dummy_cam);
             this.Controls.Add(this.btn_save_actual_log);
@@ -267,5 +284,6 @@ namespace OpenBirdsOperation
         private Button btn_save_actual_log;
         private Button btn_tx_dummy_cam;
         private Button btn_tx_real_cam;
+        private Button btn_tx_capture_cam;
     }
 }

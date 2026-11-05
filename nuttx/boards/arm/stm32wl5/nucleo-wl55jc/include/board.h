@@ -152,12 +152,10 @@
 #define GPIO_USART1_RX GPIO_USART1_RX_1    /* PA10 */
 #define GPIO_USART1_TX GPIO_USART1_TX_1    /* PA9 */
 
-/* LPUART1
- *   Connected to virtual com port
- */
+/* LPUART1 (Camera UART on PC0 RX / PC1 TX, /dev/ttyS1) */
 
-#define GPIO_LPUART1_RX GPIO_LPUART1_RX_3  /* PB10  */
-#define GPIO_LPUART1_TX GPIO_LPUART1_TX_3  /* PB11  */
+#define GPIO_LPUART1_RX GPIO_LPUART1_RX_3  /* PC0 - LPUART1_RX */
+#define GPIO_LPUART1_TX GPIO_LPUART1_TX_3  /* PC1 - LPUART1_TX */
 
 /*USART2*/
 #define GPIO_USART2_RX GPIO_USART2_RX_1    /* PA3 */

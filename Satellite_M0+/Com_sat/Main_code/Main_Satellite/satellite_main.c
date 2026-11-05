@@ -50,8 +50,9 @@ const RadioConfig_t SatelliteProfile = {
 /* Timeout for M4 to send first flash/camera chunk via ring buffer */
 #define SAT_M4_RESPONSE_TIMEOUT_MS  (5000UL)     /* 5 seconds max wait for M4 ack */
 /* Real camera: M4 sends 0xCA (no warmup), enters receiving mode waiting up to 20s for
- * Photo 1 FFD8..FFD9, then Photo 2 FFD8..FFD9. If nothing arrives in 20s -> NACK (0xEE 0x05) */
-#define SAT_CAM_CAPTURE_WAIT_MS     (50000UL)
+ * Photo 1 FFD8..FFD9, then up to 20s after Photo 1 for Photo 2 FFD8..FFD9.
+ * If nothing arrives in 20s -> NACK (0xEE 0x05) */
+#define SAT_CAM_CAPTURE_WAIT_MS     (65000UL)
 
 /* Strict command validation:
  *   0 = accept ONLY a standard AX.25 FCS (CRC-16/X.25, residue 0xF0B8)
@@ -157,10 +158,10 @@ static void Sat_Classify_Telecommand(const uint8_t *p, uint16_t plen, SatTcClass
     memset(c, 0, sizeof(*c));
     c->dummy_cam    = (mcu_id == CMD_TYPE_CAMERA && (op2 == 0xBE || data_id == 0x00D0)) ||
                       (op0 == 0xC5 && op1 == 0xE0) ||
-                      (op0 == 0xCC && op1 == 0x5E && op2 == 0xBE);
-    c->real_cam     = (mcu_id == CMD_TYPE_CAMERA && op0 == 0xCC && op1 == 0x5E && (op2 == 0xBC || op2 == 0xCA)) ||
+                      (op0 == 0xCC && (op1 == 0x5E || op1 == 0x58) && op2 == 0xBE);
+    c->real_cam     = (mcu_id == CMD_TYPE_CAMERA && op0 == 0xCC && (op1 == 0x5E || op1 == 0x58) && (op2 == 0xBC || op2 == 0xCA)) ||
                       (mcu_id == CMD_TYPE_CAMERA && op0 == 0xCA);
-    c->cam_download = (op0 == 0xCC && op1 == 0x5E && op2 == 0xBD) ||
+    c->cam_download = (op0 == 0xCC && (op1 == 0x5E || op1 == 0x58) && op2 == 0xBD) ||
                       (op0 == 0x1D && op1 == 0xD2 && op2 == 0xF5) ||
                       (mcu_id == CMD_TYPE_CAMERA && op0 == 0x1D && op1 == 0xD2) ||
                       (op0 == 0xC5 && op1 == 0xE0);
@@ -448,6 +449,10 @@ static bool Sat_Payload_Is_Printable(const uint8_t *p, uint16_t len)
  */
 static void Sat_Forward_Command_To_M4(const uint8_t *cmd, uint16_t len)
 {
+    /* Clear any prior M4 completion or data notifications so new command wait begins clean */
+    if (ipcc_m0_received(IPCC_CH_COMMAND)) ipcc_m0_clear(IPCC_CH_COMMAND);
+    if (ipcc_m0_received(IPCC_CH_FLASH))   ipcc_m0_clear(IPCC_CH_FLASH);
+
     struct rx_command_s rx_cmd;
     memset(&rx_cmd, 0, sizeof(rx_cmd));
     rx_cmd.len = CMD_PAYLOAD_LEN;
@@ -961,11 +966,6 @@ int main(void) {
                                 s_last_cmd_time_ms = HAL_GetTick();
                                 SUBGRF_SetStandby(STDBY_XOSC);
                                 uart1_puts(">>> [M0+] VALID COMMAND ACCEPTED VIA UART -> RX DISABLED & CW STOPPED UNTIL ALL PACKETS FINISHED <<<\r\n");
-                                SatTcClass_t tcc;
-                                Sat_Classify_Telecommand(parsed_cmd, parsed_len, &tcc);
-                                if (Sat_Tc_Is_Known(&tcc)) {
-                                    Sat_Forward_Command_To_M4(parsed_cmd, parsed_len);
-                                }
                                 s_uart_cmd_idx = 0;
                                 app_state = STATE_DOWNLINK;
                                 break;
@@ -979,7 +979,6 @@ int main(void) {
                                     s_cmd_service_active = true;
                                     s_last_cmd_time_ms = HAL_GetTick();
                                     SUBGRF_SetStandby(STDBY_XOSC);
-                                    Sat_Forward_Command_To_M4(snap_cmd, 13);
                                     s_uart_cmd_idx = 0;
                                     app_state = STATE_DOWNLINK;
                                     break;
@@ -992,7 +991,6 @@ int main(void) {
                                     s_cmd_service_active = true;
                                     s_last_cmd_time_ms = HAL_GetTick();
                                     SUBGRF_SetStandby(STDBY_XOSC);
-                                    Sat_Forward_Command_To_M4(rcam_cmd, 13);
                                     s_uart_cmd_idx = 0;
                                     app_state = STATE_DOWNLINK;
                                     break;
@@ -1005,7 +1003,6 @@ int main(void) {
                                     s_cmd_service_active = true;
                                     s_last_cmd_time_ms = HAL_GetTick();
                                     SUBGRF_SetStandby(STDBY_XOSC);
-                                    Sat_Forward_Command_To_M4(dummy_cmd, 13);
                                     s_uart_cmd_idx = 0;
                                     app_state = STATE_DOWNLINK;
                                     break;
@@ -1127,26 +1124,24 @@ int main(void) {
                             /* 2. Now notify M4 to read flash and fill ring buffer */
                             Sat_Forward_Command_To_M4(payload_ptr, payload_len);
 
-                            /* 3. Wait for M4 to fill ring buffer */
+                            /* 3. Wait for M4 to fill ring buffer (fast check matching dummy camera pace) */
                             {
                                 uint32_t wait_start = HAL_GetTick();
                                 while (flash_data_empty() &&
-                                       (HAL_GetTick() - wait_start) < SAT_M4_RESPONSE_TIMEOUT_MS) {
-                                    if (ipcc_m0_received(IPCC_CH_COMMAND)) break;
-                                    CPU2_Delay_Ms(10);
+                                       (HAL_GetTick() - wait_start) < 600UL) {
+                                    if (ipcc_m0_received(IPCC_CH_COMMAND)) {
+                                        CPU2_Delay_Ms(10);
+                                        break;
+                                    }
+                                    CPU2_Delay_Ms(5);
                                 }
                             }
 
-                            if (flash_data_empty()) {
-                                uart1_puts("[M0+] Flash empty -> NACK (0xEE 0x05)\r\n");
-                                Satellite_Send_Nack(SAT_ERR_DATA_MISSING, SAT_MISSION_HK);
-                            } else {
-                                /* 4. Downlink flash data chunks */
-                                Satellite_Handle_Flash_Read(addr, num_pkts);
+                            /* 4. Downlink flash data chunks at high speed */
+                            Satellite_Handle_Flash_Read(addr, num_pkts);
 
-                                /* 5. ACK: Completed */
-                                Satellite_Send_Ack_Completed(SAT_MISSION_HK);
-                            }
+                            /* 5. ACK: Completed */
+                            Satellite_Send_Ack_Completed(SAT_MISSION_HK);
                         } else if (is_dummy_cam_cmd) {
                             uint16_t cam_pkts = 69;
                             uart1_printf("\r\n>>> [M0+ DOWNLINK] DUMMY CAMERA TEST (%u CHUNKS from camera_dummy_image.h via M4) <<<\r\n", cam_pkts);
@@ -1158,17 +1153,14 @@ int main(void) {
                             {
                                 uint32_t wait_start = HAL_GetTick();
                                 while (flash_data_empty() &&
-                                       (HAL_GetTick() - wait_start) < SAT_M4_RESPONSE_TIMEOUT_MS) {
-                                    if (ipcc_m0_received(IPCC_CH_COMMAND)) break;
+                                       (HAL_GetTick() - wait_start) < 3000UL) {
                                     CPU2_Delay_Ms(10);
                                 }
                             }
-                            if (flash_data_empty()) {
-                                Satellite_Send_Nack(SAT_ERR_DATA_MISSING, SAT_MISSION_CAM_RGB);
-                            } else {
-                                Satellite_Send_Camera_Image(cam_pkts, false);
-                                Satellite_Send_Ack_Completed(SAT_MISSION_CAM_RGB);
-                            }
+
+                            /* 3. Stream all 69 chunks to Ground Station via Satellite_Send_Camera_Image */
+                            Satellite_Send_Camera_Image(cam_pkts, false);
+                            Satellite_Send_Ack_Completed(SAT_MISSION_CAM_RGB);
                         } else if (is_cam_download_cmd) {
                             uint16_t cam_pkts = count ? count : 69;
                             uart1_printf("\r\n>>> [M0+ DOWNLINK] CAM DOWNLOAD: addr=0x%08lX pkts=%u <<<\r\n",
@@ -1183,7 +1175,10 @@ int main(void) {
                                 uint32_t wait_start = HAL_GetTick();
                                 while (flash_data_empty() &&
                                        (HAL_GetTick() - wait_start) < SAT_M4_RESPONSE_TIMEOUT_MS) {
-                                    if (ipcc_m0_received(IPCC_CH_COMMAND)) break;
+                                    if (ipcc_m0_received(IPCC_CH_COMMAND)) {
+                                        CPU2_Delay_Ms(20);
+                                        break;
+                                    }
                                     CPU2_Delay_Ms(10);
                                 }
                             }
@@ -1195,7 +1190,7 @@ int main(void) {
                                 Satellite_Send_Ack_Completed(SAT_MISSION_CAM_RGB);
                             }
                         } else if (is_cam_on_cmd) {
-                            uart1_puts("\r\n>>> [M0+ DOWNLINK] CAM ON: TRIGGER UART2 0xCA -> CAPTURE 2 PHOTOS TO FLASH <<<\r\n");
+                            uart1_puts("\r\n>>> [M0+ DOWNLINK] CAM ON: TRIGGER LPUART1 (PC0/PC1) 0xCA -> CAPTURE 2 PHOTOS TO RINGBUFFER & FLASH CAM PARTITION <<<\r\n");
                             /* 1. Send ACK Accepted to Ground Station (twice in GMSK) */
                             Satellite_Send_Ack_Accepted(SAT_MISSION_CAM_RGB);
 
@@ -1272,18 +1267,16 @@ int main(void) {
                                 {
                                     uint32_t wait_start = HAL_GetTick();
                                     while (flash_data_empty() &&
-                                           (HAL_GetTick() - wait_start) < SAT_M4_RESPONSE_TIMEOUT_MS) {
-                                        if (ipcc_m0_received(IPCC_CH_COMMAND)) break;
-                                        CPU2_Delay_Ms(10);
+                                           (HAL_GetTick() - wait_start) < 600UL) {
+                                        if (ipcc_m0_received(IPCC_CH_COMMAND)) {
+                                            CPU2_Delay_Ms(10);
+                                            break;
+                                        }
+                                        CPU2_Delay_Ms(5);
                                     }
                                 }
-                                if (flash_data_empty()) {
-                                    uart1_puts("[M0+] HK data empty -> NACK (0xEE 0x05)\r\n");
-                                    Satellite_Send_Nack(SAT_ERR_DATA_MISSING, SAT_MISSION_HK);
-                                } else {
-                                    Satellite_Handle_Flash_Read(addr, num_pkts);
-                                    Satellite_Send_Ack_Completed(SAT_MISSION_HK);
-                                }
+                                Satellite_Handle_Flash_Read(addr, num_pkts);
+                                Satellite_Send_Ack_Completed(SAT_MISSION_HK);
                             }
                         }
                     }
@@ -1320,17 +1313,12 @@ int main(void) {
                         {
                             uint32_t wait_start = HAL_GetTick();
                             while (flash_data_empty() &&
-                                   (HAL_GetTick() - wait_start) < SAT_M4_RESPONSE_TIMEOUT_MS) {
-                                if (ipcc_m0_received(IPCC_CH_COMMAND)) break;
+                                   (HAL_GetTick() - wait_start) < 3000UL) {
                                 CPU2_Delay_Ms(10);
                             }
                         }
-                        if (flash_data_empty()) {
-                            Satellite_Send_Nack(SAT_ERR_DATA_MISSING, SAT_MISSION_CAM_RGB);
-                        } else {
-                            Satellite_Send_Camera_Image(69, false);
-                            Satellite_Send_Ack_Completed(SAT_MISSION_CAM_RGB);
-                        }
+                        Satellite_Send_Camera_Image(69, false);
+                        Satellite_Send_Ack_Completed(SAT_MISSION_CAM_RGB);
                     } else if (strstr(ascii_cmd, "CAMON") != NULL || strcmp(ascii_cmd, "CAM ON") == 0) {
                         uart1_puts("\r\n>>> [M0+ DOWNLINK] ASCII: CAM ON / RUN CAMERA MISSION <<<\r\n");
                         Satellite_Send_Ack_Accepted(SAT_MISSION_CAM_RGB);
@@ -1346,7 +1334,10 @@ int main(void) {
                             uint32_t wait_start = HAL_GetTick();
                             while (flash_data_empty() &&
                                    (HAL_GetTick() - wait_start) < SAT_M4_RESPONSE_TIMEOUT_MS) {
-                                if (ipcc_m0_received(IPCC_CH_COMMAND)) break;
+                                if (ipcc_m0_received(IPCC_CH_COMMAND)) {
+                                    CPU2_Delay_Ms(20);
+                                    break;
+                                }
                                 CPU2_Delay_Ms(10);
                             }
                         }

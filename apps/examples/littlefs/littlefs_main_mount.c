@@ -53,6 +53,7 @@
 
 #include <nuttx/spi/spi.h>
 #include <telemetry_rb.h>
+#include "ring_buffer.h"
 #include "Sring_buffer.h"
 
 /****************************************************************************
@@ -241,15 +242,16 @@ static int write_flash_disable(FAR struct spi_dev_s *spi)
 
 static int erase_flash_4kb(FAR struct spi_dev_s *spi, uint32_t address)
 {
-  uint8_t cmd[4];
+  uint8_t cmd[5];
   uint8_t status;
   int count = 0;
   const int max_retries_4kb = 500; /* 500 tries * 10ms = 5000 ms total */
 
-  cmd[0] = ERASE_4KB;              /* 0x20: 4KB Sector Erase */
-  cmd[1] = (address >> 16) & 0xFF; /* Address byte 1 (MSB) */
-  cmd[2] = (address >> 8)  & 0xFF; /* Address byte 2 */
-  cmd[3] = address & 0xFF;         /* Address byte 3 (LSB) */
+  cmd[0] = 0x21;                   /* 0x21: 4-Byte 4KB Subsector Erase */
+  cmd[1] = (address >> 24) & 0xFF; /* Address byte 1 (MSB) */
+  cmd[2] = (address >> 16) & 0xFF; /* Address byte 2 */
+  cmd[3] = (address >> 8)  & 0xFF; /* Address byte 3 */
+  cmd[4] = address & 0xFF;         /* Address byte 4 (LSB) */
 
   /* 1. Write Enable MUST be sent first, as its own transaction */
   write_flash_enable(spi);
@@ -263,7 +265,7 @@ static int erase_flash_4kb(FAR struct spi_dev_s *spi, uint32_t address)
   SPI_SELECT(spi, SPIDEV_MAIN_FLASH(0), false);
   SPI_LOCK(spi, false);
 
-  printf("Flash Erase command sent for address: 0x%06lX\n", (unsigned long)address);
+  printf("Flash Erase command sent for address: 0x%08lX\n", (unsigned long)address);
 
   /* 3. Poll the status register (WIP bit) until the erase finishes */
   printf("Waiting for erase to complete...\n");
@@ -296,15 +298,16 @@ static int erase_flash_4kb(FAR struct spi_dev_s *spi, uint32_t address)
 
 static int erase_flash_32kb(FAR struct spi_dev_s *spi, uint32_t address)
 {
-  uint8_t cmd[4];
+  uint8_t cmd[5];
   uint8_t status;
   int count = 0;
   const int max_retries_32kb = 1000; /* 1000 * 1ms = 1,000 ms (1 second) */
 
-  cmd[0] = ERASE_32KB;             /* 0x52: 32KB Subsector Erase */
-  cmd[1] = (address >> 16) & 0xFF;
-  cmd[2] = (address >> 8)  & 0xFF;
-  cmd[3] = address & 0xFF;
+  cmd[0] = 0x5C;                   /* 0x5C: 4-Byte 32KB Subsector Erase */
+  cmd[1] = (address >> 24) & 0xFF;
+  cmd[2] = (address >> 16) & 0xFF;
+  cmd[3] = (address >> 8)  & 0xFF;
+  cmd[4] = address & 0xFF;
 
   write_flash_enable(spi);
 
@@ -314,7 +317,7 @@ static int erase_flash_32kb(FAR struct spi_dev_s *spi, uint32_t address)
   SPI_SELECT(spi, SPIDEV_MAIN_FLASH(0), false);
   SPI_LOCK(spi, false);
 
-  printf("Erasing 32KB at address 0x%06lX...\n", (unsigned long)address);
+  printf("Erasing 32KB at address 0x%08lX...\n", (unsigned long)address);
 
   do
     {
@@ -344,15 +347,16 @@ static int erase_flash_32kb(FAR struct spi_dev_s *spi, uint32_t address)
 
 static int erase_flash_64kb(FAR struct spi_dev_s *spi, uint32_t address)
 {
-  uint8_t cmd[4];
+  uint8_t cmd[5];
   uint8_t status;
   int count = 0;
   const int max_retries_64kb = 2000; /* 2000 * 1ms = 2,000 ms (2 seconds) */
 
-  cmd[0] = ERASE_64KB;             /* 0xD8: 64KB Sector Erase */
-  cmd[1] = (address >> 16) & 0xFF;
-  cmd[2] = (address >> 8)  & 0xFF;
-  cmd[3] = address & 0xFF;
+  cmd[0] = 0xDC;                   /* 0xDC: 4-Byte 64KB Sector Erase */
+  cmd[1] = (address >> 24) & 0xFF;
+  cmd[2] = (address >> 16) & 0xFF;
+  cmd[3] = (address >> 8)  & 0xFF;
+  cmd[4] = address & 0xFF;
 
   write_flash_enable(spi);
 
@@ -362,7 +366,7 @@ static int erase_flash_64kb(FAR struct spi_dev_s *spi, uint32_t address)
   SPI_SELECT(spi, SPIDEV_MAIN_FLASH(0), false);
   SPI_LOCK(spi, false);
 
-  printf("Erasing 64KB sector at address 0x%06lX...\n", (unsigned long)address);
+  printf("Erasing 64KB sector at address 0x%08lX...\n", (unsigned long)address);
 
   do
     {
@@ -442,15 +446,24 @@ static int erase_flash_all(FAR struct spi_dev_s *spi)
 
 static int erase_flash_die(FAR struct spi_dev_s *spi, uint32_t address)
 {
-  uint8_t cmd[4];
+  uint8_t cmd[5];
   uint8_t status;
   int seconds = 0;
   const int max_seconds_die = 300; /* 5 minutes timeout */
 
+  /* Enter 4-Byte Address Mode (0xB7) so Die Erase (0xC4) accepts 4-byte address */
+  write_flash_enable(spi);
+  SPI_LOCK(spi, true);
+  SPI_SELECT(spi, SPIDEV_MAIN_FLASH(0), true);
+  SPI_SEND(spi, 0xB7);
+  SPI_SELECT(spi, SPIDEV_MAIN_FLASH(0), false);
+  SPI_LOCK(spi, false);
+
   cmd[0] = Die_erase;              /* 0xC4: Die Erase */
-  cmd[1] = (address >> 16) & 0xFF;
-  cmd[2] = (address >> 8)  & 0xFF;
-  cmd[3] = address & 0xFF;
+  cmd[1] = (address >> 24) & 0xFF;
+  cmd[2] = (address >> 16) & 0xFF;
+  cmd[3] = (address >> 8)  & 0xFF;
+  cmd[4] = address & 0xFF;
 
   write_flash_enable(spi);
 
@@ -460,7 +473,7 @@ static int erase_flash_die(FAR struct spi_dev_s *spi, uint32_t address)
   SPI_SELECT(spi, SPIDEV_MAIN_FLASH(0), false);
   SPI_LOCK(spi, false);
 
-  printf("Erasing 64MB Die for address 0x%06lX (takes ~1-2 minutes)...\n",
+  printf("Erasing 64MB Die for address 0x%08lX (takes ~1-2 minutes)...\n",
          (unsigned long)address);
 
   do
@@ -888,11 +901,25 @@ static int littlefs_hardware_test(void)
  *        the append once.
  ****************************************************************************/
 
+static uint16_t hk_crc16(const uint8_t *buf, uint16_t len)
+{
+  uint16_t crc = 0xFFFFU;
+  for (uint16_t i = 0; i < len; i++)
+    {
+      crc ^= ((uint16_t)buf[i] << 8);
+      for (uint8_t b = 0; b < 8; b++)
+        {
+          crc = (crc & 0x8000U) ? ((crc << 1) ^ 0x1021U) : (crc << 1);
+        }
+    }
+  return crc;
+}
+
 static int littlefs_telemetry_daemon(void)
 {
   struct telemetry_envelope_s env;
-  struct adc1_packet_s verify_adc1;
-  struct adc2_packet_s verify_adc2;
+  static struct adc1_packet_s s_cached_adc1;
+  static bool s_have_adc1 = false;
   struct stat st;
   const char *filename;
   int fd;
@@ -902,9 +929,12 @@ static int littlefs_telemetry_daemon(void)
   uint32_t packet_num = 0;
 
   printf("\n=======================================================\n");
-  printf("  [LITTLEFS DAEMON] Telemetry Storage Consumer Active  \n");
-  printf("  Mount: /dev/hk (64 MB - Die 0) -> /mnt/hk (Unified Telemetry)\n");
+  printf("  [LITTLEFS DAEMON] Telemetry & Camera Storage Consumer\n");
+  printf("  Mount 1: /dev/hk     (64 MB - Die 0) -> /mnt/hk\n");
+  printf("  Mount 2: /dev/camera (64 MB - Die 1) -> /mnt/camera\n");
   printf("=======================================================\n");
+
+  rb_init();
 
   /* 1. Mount Unified Partition: /dev/hk (64 MB) to /mnt/hk */
   ret = mount_drive("/dev/hk", "/mnt/hk");
@@ -915,16 +945,38 @@ static int littlefs_telemetry_daemon(void)
     }
 
   printf("[LITTLEFS DAEMON] Ready! /mnt/hk mounted successfully!\n");
-  printf("[LITTLEFS DAEMON] Waiting for OBC_main telemetry signals...\n");
+
+  /* 2. Mount Camera Partition: /dev/camera (64 MB) to /mnt/camera */
+  ret = mount_drive("/dev/camera", "/mnt/camera");
+  if (ret != OK)
+    {
+      printf("[LITTLEFS DAEMON] WARNING: mount_drive(/dev/camera) returned %d\n", ret);
+    }
+  else
+    {
+      printf("[LITTLEFS DAEMON] Ready! /mnt/camera mounted successfully!\n");
+    }
+
+  printf("[LITTLEFS DAEMON] Waiting for OBC_main telemetry & camera signals...\n");
 
   while (1)
     {
       /* 3. Sleep until notified by OBC_main (0% CPU while waiting) */
       sem_wait(&g_telemetry_sem);
 
-      /* Hold off flash writes if M0+ is actively downlinking to prevent power spikes */
+      /* Drain any pending camera burst chunks from ring buffer to /mnt/camera */
+      if (!rb_empty())
+        {
+          cam_rb_drain_to_flash();
+        }
+
+      /* Hold off HK flash writes if M0+ is actively downlinking to prevent power spikes */
       while (sat_is_downlink_active())
         {
+          if (!rb_empty())
+            {
+              cam_rb_drain_to_flash();
+            }
           usleep(100000);
         }
 
@@ -939,104 +991,77 @@ static int littlefs_telemetry_daemon(void)
 
           if (env.footer == TELEM_FOOTER_ADC1)
             {
-              filename = "/mnt/hk/telemetry.bin";
+              s_cached_adc1 = env.pkt.adc1;
+              s_have_adc1 = true;
+
               printf("\n[LITTLEFS DAEMON] ===> RECEIVED ADC1 ENVELOPE (Len: %d B, Footer: 0x%04X) <===\n",
                      env.len, env.footer);
 
-              fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, 0666);
-              if (fd >= 0)
+              static const char * const adc1_names[ADC1_CHANNELS_COUNT] =
+              {
+                "ADC_BAT_MON", "TOTAL_SOLAR_V", "RAW_VOLT", "SP5_VOLT",
+                "SP4_VOLT",    "SP3_VOLT",      "SP1_VOLT", "SP2_VOLT",
+                "ANT_TEMP",    "BATT_TEMP",     "TEMP_BPB", "TEMP1",
+                "TEMP5",       "TEMP4",         "TEMP3",    "TEMP2"
+              };
+
+              printf("[LITTLEFS DAEMON] [BUFFERED ADC1 - ALL 16 CHANNELS]:\n");
+              for (int k = 0; k < ADC1_CHANNELS_COUNT; k++)
                 {
-                  written = write(fd, &env.pkt.adc1, sizeof(struct adc1_packet_s));
-                  fsync(fd);
-                  close(fd);
-
-                  if (written < 0)
-                    {
-                      printf("[LITTLEFS DAEMON] ERROR: write() failed on %s (written=%zd, errno=%d)\n",
-                             filename, written, errno);
-                      if (errno == EFAULT)
-                        {
-                          printf("[LITTLEFS DAEMON] Old flash format detected (EFAULT). Auto-formatting /dev/hk with 256B geometry...\n");
-                          umount("/mnt/hk");
-                          mount("/dev/hk", "/mnt/hk", "littlefs", 0, "forceformat");
-                          fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, 0666);
-                          if (fd >= 0)
-                            {
-                              written = write(fd, &env.pkt.adc1, sizeof(struct adc1_packet_s));
-                              fsync(fd);
-                              close(fd);
-                              printf("[LITTLEFS DAEMON] [RECOVERED HK1] Appended %zd Bytes to %s\n", written, filename);
-                            }
-                        }
-                      continue;
-                    }
-
-                  printf("[LITTLEFS DAEMON] [STORED HK1] Appended %zd Bytes to %s\n", written, filename);
-
-                  /* Read back and verify from physical Flash */
-                  fd = open(filename, O_RDONLY);
-                  if (fd >= 0)
-                    {
-                      lseek(fd, -(off_t)sizeof(struct adc1_packet_s), SEEK_END);
-                      memset(&verify_adc1, 0, sizeof(verify_adc1));
-                      nread = read(fd, &verify_adc1, sizeof(struct adc1_packet_s));
-                      close(fd);
-
-                      if (nread == sizeof(struct adc1_packet_s) &&
-                          verify_adc1.footer == TELEM_FOOTER_ADC1 &&
-                          memcmp(&env.pkt.adc1, &verify_adc1, sizeof(struct adc1_packet_s)) == 0)
-                        {
-                          static const char * const adc1_names[ADC1_CHANNELS_COUNT] =
-                          {
-                            "ADC_BAT_MON", "TOTAL_SOLAR_V", "RAW_VOLT", "SP5_VOLT",
-                            "SP4_VOLT",    "SP3_VOLT",      "SP1_VOLT", "SP2_VOLT",
-                            "ANT_TEMP",    "BATT_TEMP",     "TEMP_BPB", "TEMP1",
-                            "TEMP5",       "TEMP4",         "TEMP3",    "TEMP2"
-                          };
-
-                          stat(filename, &st);
-                          printf("[LITTLEFS DAEMON] [VERIFIED IN FLASH /mnt/hk - ALL 16 CHANNELS]:\n");
-                          for (int k = 0; k < ADC1_CHANNELS_COUNT; k++)
-                            {
-                              const char *unit = (k < 8) ? "V" : "C";
-                              printf("  [%02d] %-14s : %6.2f %s   (x100: %6d)\n",
-                                     k, adc1_names[k], (float)verify_adc1.data[k] / 100.0f,
-                                     unit, verify_adc1.data[k]);
-                            }
-                          printf("  [--] Footer Check    : 0x%04X   [MATCHED 100%%]\n", verify_adc1.footer);
-                          printf("[LITTLEFS DAEMON] [PASS HK1] File Size: %ld B (%ld Packets in /mnt/hk)\n",
-                                 (long)st.st_size, (long)(st.st_size / sizeof(struct adc1_packet_s)));
-                        }
-                      else
-                        {
-                          printf("[LITTLEFS DAEMON] [FAIL] Read-back mismatch in %s!\n", filename);
-                        }
-                    }
-                  else
-                    {
-                      printf("[LITTLEFS DAEMON] ERROR opening %s for read (errno=%d)\n", filename, errno);
-                    }
+                  const char *unit = (k < 8) ? "V" : "C";
+                  printf("  [%02d] %-14s : %6.2f %s   (x100: %6d)\n",
+                         k, adc1_names[k], (float)s_cached_adc1.data[k] / 100.0f,
+                         unit, s_cached_adc1.data[k]);
                 }
-              else
-                {
-                  printf("[LITTLEFS DAEMON] ERROR opening %s for write (errno=%d)\n", filename, errno);
-                }
+              printf("  [--] Footer Check    : 0x%04X   [BUFFERED FOR 128B FLASH RECORD]\n", s_cached_adc1.footer);
             }
 
           /* ================================================================= */
-          /* ROUTE 2: Footer 0xBB66 -> /mnt/hk/telemetry.bin (ADC 2: 38 Bytes) */
+          /* ROUTE 2: Footer 0xBB66 -> /mnt/hk/telemetry.bin (128-Byte HK Record) */
           /* ================================================================= */
 
           else if (env.footer == TELEM_FOOTER_ADC2)
             {
               filename = "/mnt/hk/telemetry.bin";
-              printf("\n[LITTLEFS DAEMON] ===> RECEIVED ADC2 ENVELOPE (Len: %d B, Footer: 0x%04X) <===\n",
+              printf("\n[LITTLEFS DAEMON] ===> RECEIVED ADC2 ENVELOPE (Len: %d B, Footer: 0x%04X) -> WRITING 128B HK RECORD <===\n",
                      env.len, env.footer);
+
+              uint8_t hk128[128];
+              memset(hk128, 0, sizeof(hk128));
+
+              if (s_have_adc1)
+                {
+                  memcpy(&hk128[0], s_cached_adc1.data, 32);
+                }
+              hk128[32] = 0x55;
+              hk128[33] = 0xAA;
+
+              memcpy(&hk128[34], env.pkt.adc2.data, 24);
+              memcpy(&hk128[58], &env.pkt.adc2.gyro_x, 12);
+
+              hk128[70] = 0x66;
+              hk128[71] = 0xBB;
+
+              static uint32_t s_hk_flash_seq = 0;
+              s_hk_flash_seq++;
+              struct timespec ts;
+              clock_gettime(CLOCK_MONOTONIC, &ts);
+              uint32_t now_ms = (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+
+              memcpy(&hk128[72], &s_hk_flash_seq, 4);
+              memcpy(&hk128[76], &now_ms, 4);
+
+              uint16_t crc = hk_crc16(hk128, 124);
+              hk128[124] = (uint8_t)(crc & 0xFF);
+              hk128[125] = (uint8_t)(crc >> 8);
+
+              hk128[126] = 0xAA;
+              hk128[127] = 0xCC;
 
               fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, 0666);
               if (fd >= 0)
                 {
-                  written = write(fd, &env.pkt.adc2, sizeof(struct adc2_packet_s));
+                  written = write(fd, hk128, sizeof(hk128));
                   fsync(fd);
                   close(fd);
 
@@ -1052,35 +1077,35 @@ static int littlefs_telemetry_daemon(void)
                           fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, 0666);
                           if (fd >= 0)
                             {
-                              written = write(fd, &env.pkt.adc2, sizeof(struct adc2_packet_s));
+                              written = write(fd, hk128, sizeof(hk128));
                               fsync(fd);
                               close(fd);
-                              printf("[LITTLEFS DAEMON] [RECOVERED HK2] Appended %zd Bytes to %s\n", written, filename);
+                              printf("[LITTLEFS DAEMON] [RECOVERED HK] Appended %zd Bytes to %s\n", written, filename);
                             }
                         }
                       continue;
                     }
 
-                  printf("[LITTLEFS DAEMON] [STORED HK2] Appended %zd Bytes to %s\n", written, filename);
+                  printf("[LITTLEFS DAEMON] [STORED HK 128B] Appended %zd Bytes to %s\n", written, filename);
 
                   /* Read back and verify from physical Flash */
                   fd = open(filename, O_RDONLY);
                   if (fd >= 0)
                     {
-                      lseek(fd, -(off_t)sizeof(struct adc2_packet_s), SEEK_END);
-                      memset(&verify_adc2, 0, sizeof(verify_adc2));
-                      nread = read(fd, &verify_adc2, sizeof(struct adc2_packet_s));
+                      uint8_t verify128[128];
+                      lseek(fd, -(off_t)sizeof(verify128), SEEK_END);
+                      memset(verify128, 0, sizeof(verify128));
+                      nread = read(fd, verify128, sizeof(verify128));
                       close(fd);
 
-                      if (nread == sizeof(struct adc2_packet_s) &&
-                          verify_adc2.footer == TELEM_FOOTER_ADC2 &&
-                          memcmp(&env.pkt.adc2, &verify_adc2, sizeof(struct adc2_packet_s)) == 0)
+                      if (nread == sizeof(verify128) &&
+                          memcmp(hk128, verify128, sizeof(verify128)) == 0)
                         {
                           static const char * const adc2_names[ADC2_ACTIVE_CHANNELS] =
                           {
-                            "UNREG_I",       "SP4_I",         "MAIN_3V3_I", "MISSION_3V3_I",
-                            "SPT_I",         "5V_I",          "SP2_I",      "SP1_I",
-                            "RAW_I",         "SP5_I",         "BAT_I",      "SP3_I"
+                            "UNREG_I",       "MAIN_3V3_I",    "5V_I",        "BAT_I",
+                            "SP1_I",         "SP2_I",         "SP3_I",       "SP4_I",
+                            "SP5_I",         "RAW_I",         "MISSION_3V3", "SPT_I"
                           };
 
                           stat(filename, &st);
@@ -1088,28 +1113,28 @@ static int littlefs_telemetry_daemon(void)
                           for (int k = 0; k < ADC2_ACTIVE_CHANNELS; k++)
                             {
                               printf("  [%02d] %-14s : %6.2f A   (x100: %6d)\n",
-                                     k, adc2_names[k], (float)verify_adc2.data[k] / 100.0f,
-                                     verify_adc2.data[k]);
+                                     k, adc2_names[k], (float)env.pkt.adc2.data[k] / 100.0f,
+                                     env.pkt.adc2.data[k]);
                             }
                           printf("  [GYRO] X: %6.2f dps | Y: %6.2f dps | Z: %6.2f dps (x100: %d, %d, %d)\n",
-                                 (float)verify_adc2.gyro_x / 100.0f,
-                                 (float)verify_adc2.gyro_y / 100.0f,
-                                 (float)verify_adc2.gyro_z / 100.0f,
-                                 verify_adc2.gyro_x, verify_adc2.gyro_y, verify_adc2.gyro_z);
+                                 (float)env.pkt.adc2.gyro_x / 100.0f,
+                                 (float)env.pkt.adc2.gyro_y / 100.0f,
+                                 (float)env.pkt.adc2.gyro_z / 100.0f,
+                                 env.pkt.adc2.gyro_x, env.pkt.adc2.gyro_y, env.pkt.adc2.gyro_z);
                           printf("  [MAG]  X: %6.3f G   | Y: %6.3f G   | Z: %6.3f G   (x100: %d, %d, %d)\n",
-                                 (float)verify_adc2.mag_x / 100.0f,
-                                 (float)verify_adc2.mag_y / 100.0f,
-                                 (float)verify_adc2.mag_z / 100.0f,
-                                 verify_adc2.mag_x, verify_adc2.mag_y, verify_adc2.mag_z);
-                          printf("  [--] Footer Check    : 0x%04X   [MATCHED 100%%]\n", verify_adc2.footer);
-                          printf("[LITTLEFS DAEMON] [PASS HK2] File Size: %ld B (%ld Packets in /mnt/hk)\n",
-                                 (long)st.st_size, (long)(st.st_size / sizeof(struct adc2_packet_s)));
+                                 (float)env.pkt.adc2.mag_x / 100.0f,
+                                 (float)env.pkt.adc2.mag_y / 100.0f,
+                                 (float)env.pkt.adc2.mag_z / 100.0f,
+                                 env.pkt.adc2.mag_x, env.pkt.adc2.mag_y, env.pkt.adc2.mag_z);
+                          printf("  [--] Footers: 0x%02X%02X, 0x%02X%02X, 0x%02X%02X | CRC: 0x%04X [MATCHED 100%%]\n",
+                                 verify128[33], verify128[32], verify128[71], verify128[70], verify128[127], verify128[126], crc);
+                          printf("[LITTLEFS DAEMON] [PASS HK 128B] File Size: %ld B (%ld Records in /mnt/hk)\n",
+                                 (long)st.st_size, (long)(st.st_size / 128));
                         }
                       else
                         {
-                          printf("[LITTLEFS DAEMON] [FAIL] Read-back mismatch in %s! (nread=%zd, footer=0x%04X vs 0x%04X, memcmp=%d)\n",
-                                 filename, nread, verify_adc2.footer, TELEM_FOOTER_ADC2,
-                                 memcmp(&env.pkt.adc2, &verify_adc2, sizeof(struct adc2_packet_s)));
+                          printf("[LITTLEFS DAEMON] [FAIL] Read-back mismatch in %s! (nread=%zd, memcmp=%d)\n",
+                                 filename, nread, memcmp(hk128, verify128, sizeof(verify128)));
                         }
                     }
                   else
@@ -1140,7 +1165,7 @@ static int littlefs_telemetry_daemon(void)
 
 static int littlefs_read_hk1(void)
 {
-  struct adc1_packet_s pkt;
+  uint8_t rec[128];
   static const char * const names[ADC1_CHANNELS_COUNT] =
   {
     "ADC_BAT_MON", "TOTAL_SOLAR_V", "RAW_VOLT", "SP5_VOLT",
@@ -1169,22 +1194,24 @@ static int littlefs_read_hk1(void)
 
   uint32_t count = 0;
   ssize_t nread;
-  printf("\n======================= READING /mnt/hk1/telemetry.bin =======================\n");
-  while ((nread = read(fd, &pkt, sizeof(pkt))) == sizeof(pkt))
+  printf("\n======================= READING /mnt/hk/telemetry.bin (HK1) =======================\n");
+  while ((nread = read(fd, rec, sizeof(rec))) == sizeof(rec))
     {
       count++;
-      printf("\n>>> HK1 Telemetry Record #%lu (34 Bytes, Footer: 0x%04X) <<<\n",
-             (unsigned long)count, pkt.footer);
+      int16_t *adc1 = (int16_t *)&rec[0];
+      uint16_t footer1 = (uint16_t)(rec[32] | ((uint16_t)rec[33] << 8));
+      printf("\n>>> HK1 Telemetry Record #%lu (128B, Footer: 0x%04X) <<<\n",
+             (unsigned long)count, footer1);
       for (int i = 0; i < ADC1_CHANNELS_COUNT; i++)
         {
           const char *unit = (i < 8) ? "V" : "C";
           printf("  [%02d] %-15s : %6.2f %s   (Raw x100: %6d)\n",
-                 i, names[i], (float)pkt.data[i] / 100.0f, unit, pkt.data[i]);
+                 i, names[i], (float)adc1[i] / 100.0f, unit, adc1[i]);
         }
     }
 
   close(fd);
-  printf("\n[TOTAL] Read %lu HK1 records from /mnt/hk1/telemetry.bin\n", (unsigned long)count);
+  printf("\n[TOTAL] Read %lu HK1 records from /mnt/hk/telemetry.bin\n", (unsigned long)count);
   return 0;
 }
 
@@ -1198,12 +1225,12 @@ static int littlefs_read_hk1(void)
 
 static int littlefs_read_hk2(void)
 {
-  struct adc2_packet_s pkt;
+  uint8_t rec[128];
   static const char * const names[ADC2_ACTIVE_CHANNELS] =
   {
-    "UNREG_I",       "SP4_I",         "MAIN_3V3_I", "MISSION_3V3_I",
-    "SPT_I",         "5V_I",          "SP2_I",      "SP1_I",
-    "RAW_I",         "SP5_I",         "BAT_I",      "SP3_I"
+    "UNREG_I",       "MAIN_3V3_I",    "5V_I",        "BAT_I",
+    "SP1_I",         "SP2_I",         "SP3_I",       "SP4_I",
+    "SP5_I",         "RAW_I",         "MISSION_3V3", "SPT_I"
   };
 
   /* Auto-mount /dev/hk if not already mounted */
@@ -1226,27 +1253,30 @@ static int littlefs_read_hk2(void)
 
   uint32_t count = 0;
   ssize_t nread;
-  printf("\n======================= READING /mnt/hk2/telemetry.bin =======================\n");
-  while ((nread = read(fd, &pkt, sizeof(pkt))) == sizeof(pkt))
+  printf("\n======================= READING /mnt/hk/telemetry.bin (HK2) =======================\n");
+  while ((nread = read(fd, rec, sizeof(rec))) == sizeof(rec))
     {
       count++;
-      printf("\n>>> HK2 Telemetry Record #%lu (38 Bytes, Footer: 0x%04X) <<<\n",
-             (unsigned long)count, pkt.footer);
+      int16_t *adc2 = (int16_t *)&rec[34];
+      int16_t *imu  = (int16_t *)&rec[58];
+      uint16_t footer2 = (uint16_t)(rec[70] | ((uint16_t)rec[71] << 8));
+      printf("\n>>> HK2 Telemetry Record #%lu (128B, Footer: 0x%04X) <<<\n",
+             (unsigned long)count, footer2);
       for (int i = 0; i < ADC2_ACTIVE_CHANNELS; i++)
         {
           printf("  [%02d] %-15s : %6.2f A   (Raw x100: %6d)\n",
-                 i, names[i], (float)pkt.data[i] / 100.0f, pkt.data[i]);
+                 i, names[i], (float)adc2[i] / 100.0f, adc2[i]);
         }
       printf("  [GYRO] X: %6.2f dps | Y: %6.2f dps | Z: %6.2f dps   (x100: %d, %d, %d)\n",
-             (float)pkt.gyro_x / 100.0f, (float)pkt.gyro_y / 100.0f, (float)pkt.gyro_z / 100.0f,
-             pkt.gyro_x, pkt.gyro_y, pkt.gyro_z);
+             (float)imu[0] / 100.0f, (float)imu[1] / 100.0f, (float)imu[2] / 100.0f,
+             imu[0], imu[1], imu[2]);
       printf("  [MAG]  X: %6.3f G   | Y: %6.3f G   | Z: %6.3f G   (x100: %d, %d, %d)\n",
-             (float)pkt.mag_x / 100.0f, (float)pkt.mag_y / 100.0f, (float)pkt.mag_z / 100.0f,
-             pkt.mag_x, pkt.mag_y, pkt.mag_z);
+             (float)imu[3] / 100.0f, (float)imu[4] / 100.0f, (float)imu[5] / 100.0f,
+             imu[3], imu[4], imu[5]);
     }
 
   close(fd);
-  printf("\n[TOTAL] Read %lu HK2 records from /mnt/hk2/telemetry.bin\n", (unsigned long)count);
+  printf("\n[TOTAL] Read %lu HK2 records from /mnt/hk/telemetry.bin\n", (unsigned long)count);
   return 0;
 }
 /*sends the HK1, HK2 and IMU data brust if command received*/
@@ -1293,6 +1323,14 @@ static int print_partition_sizes(void)
   else
     {
       printf("    File: /mnt/camera/capture_01.raw | Size: 0 Bytes (empty / not captured yet)\n");
+    }
+  if (stat("/mnt/camera/capture_02.raw", &st) == 0)
+    {
+      printf("    File: /mnt/camera/capture_02.raw | Size: %ld Bytes\n", (long)st.st_size);
+    }
+  else
+    {
+      printf("    File: /mnt/camera/capture_02.raw | Size: 0 Bytes (empty / not captured yet)\n");
     }
   printf("=================================================================\n\n");
   return 0;

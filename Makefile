@@ -78,12 +78,12 @@ flash_M4 flash_m4 flash_cpu1 flash_CPU1: $(M4_DIR)/.config
 	  $(STM32_PROG) -c port=SWD mode=HOTPLUG -w $(M4_DIR)/nuttx.bin 0x08000000 -v -hardRst 2>/dev/null || \
 	  $(STM32_PROG) -c port=SWD -w $(M4_DIR)/nuttx.bin 0x08000000 -v -hardRst || \
 	  (echo "STM32_Programmer_CLI failed. Trying OpenOCD fallback..." && \
-	  openocd -f interface/stlink.cfg -f target/stm32wlx.cfg -c "reset_config none" -c "program $(M4_DIR)/nuttx.bin 0x08000000 verify reset exit" 2>/dev/null || \
-	  openocd -f interface/stlink-dap.cfg -f target/stm32wlx.cfg -c "reset_config none" -c "program $(M4_DIR)/nuttx.bin 0x08000000 verify reset exit"); \
+	  openocd -f interface/stlink.cfg -f target/stm32wlx.cfg -c "gdb_port disabled; tcl_port disabled; telnet_port disabled; init; halt; mww 0xE004203C 0x00001800; mww 0x40003000 0x0000AAAA; reg primask 1; mww 0x58004010 0x0000C3FB; mww 0x58004060 0x0000C3FB; flash write_image erase $(M4_DIR)/nuttx.bin 0x08000000 bin; verify_image $(M4_DIR)/nuttx.bin 0x08000000 bin; mww 0x58004000 [expr {[mrw 0x58004000] & ~0x10000}]; reset run; exit" 2>/dev/null || \
+	  openocd -f interface/stlink-dap.cfg -f target/stm32wlx.cfg -c "gdb_port disabled; tcl_port disabled; telnet_port disabled; init; halt; mww 0xE004203C 0x00001800; mww 0x40003000 0x0000AAAA; reg primask 1; mww 0x58004010 0x0000C3FB; mww 0x58004060 0x0000C3FB; flash write_image erase $(M4_DIR)/nuttx.bin 0x08000000 bin; verify_image $(M4_DIR)/nuttx.bin 0x08000000 bin; mww 0x58004000 [expr {[mrw 0x58004000] & ~0x10000}]; reset run; exit"); \
 	else \
 	  echo "Flashing Satellite CPU1 (NuttX) to 0x08000000 using OpenOCD (CPU2 preserved)..."; \
-	  openocd -f interface/stlink.cfg -f target/stm32wlx.cfg -c "reset_config none" -c "program $(M4_DIR)/nuttx.bin 0x08000000 verify reset exit" 2>/dev/null || \
-	  openocd -f interface/stlink-dap.cfg -f target/stm32wlx.cfg -c "reset_config none" -c "program $(M4_DIR)/nuttx.bin 0x08000000 verify reset exit"; \
+	  openocd -f interface/stlink.cfg -f target/stm32wlx.cfg -c "gdb_port disabled; tcl_port disabled; telnet_port disabled; init; halt; mww 0xE004203C 0x00001800; mww 0x40003000 0x0000AAAA; reg primask 1; mww 0x58004010 0x0000C3FB; mww 0x58004060 0x0000C3FB; flash write_image erase $(M4_DIR)/nuttx.bin 0x08000000 bin; verify_image $(M4_DIR)/nuttx.bin 0x08000000 bin; mww 0x58004000 [expr {[mrw 0x58004000] & ~0x10000}]; reset run; exit" 2>/dev/null || \
+	  openocd -f interface/stlink-dap.cfg -f target/stm32wlx.cfg -c "gdb_port disabled; tcl_port disabled; telnet_port disabled; init; halt; mww 0xE004203C 0x00001800; mww 0x40003000 0x0000AAAA; reg primask 1; mww 0x58004010 0x0000C3FB; mww 0x58004060 0x0000C3FB; flash write_image erase $(M4_DIR)/nuttx.bin 0x08000000 bin; verify_image $(M4_DIR)/nuttx.bin 0x08000000 bin; mww 0x58004000 [expr {[mrw 0x58004000] & ~0x10000}]; reset run; exit"; \
 	fi
 
 # ==========================================================================
@@ -122,4 +122,16 @@ clean_m0:
 	$(MAKE) -C $(SAT_CPU2_DIR) clean
 	$(MAKE) -C $(GS_CPU2_DIR) clean
 
-.PHONY: all build_all configure_m4 build_m4 build_sat_m0 build_gs flash_M4 flash_m4 flash_cpu1 flash_CPU1 flashsatM0 flash_sat_m0 flash_sat flash_SAT flash_m0 flash_M0 flash_GS flash_gs flash_cpu2_gs flash_all_sat clean clean_m0
+# ==========================================================================
+# DESKTOP GROUND STATION GUI (All-In-One APN Console & Legacy C#)
+# ==========================================================================
+gs_gui desktop_gs run_gs_gui run_gs:
+	./Run_GS_Linux.sh
+
+legacy_gs_gui:
+	./Ground_Station/Desktop_GS_SOFTWARE-20261101T100316Z-1-001/Desktop_GS_SOFTWARE/NAST_GS_CODE/run_gs_software.sh
+
+build_gs_gui:
+	$(MAKE) -C Ground_Station/Desktop_GS_SOFTWARE-20261101T100316Z-1-001/Desktop_GS_SOFTWARE/NAST_GS_CODE build
+
+.PHONY: all build_all configure_m4 build_m4 build_sat_m0 build_gs flash_M4 flash_m4 flash_cpu1 flash_CPU1 flashsatM0 flash_sat_m0 flash_sat flash_SAT flash_m0 flash_M0 flash_GS flash_gs flash_cpu2_gs flash_all_sat clean clean_m0 gs_gui desktop_gs run_gs_gui run_gs legacy_gs_gui build_gs_gui

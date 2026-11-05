@@ -1595,7 +1595,7 @@ namespace OpenBirdsOperation
             this.Margin = new System.Windows.Forms.Padding(2);
             this.MinimumSize = new System.Drawing.Size(801, 669);
             this.Name = "operationMain";
-            this.Text = "Slippers2Sat Operation_V1.0";
+            this.Text = "Antarikchya Pratisthan Nepal - Satellite Ground Station (S2S-2)";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.MainForm_FormClosing);
             this.Load += new System.EventHandler(this.MainForm_Load);
             this.Resize += new System.EventHandler(this.MainForm_Resize);

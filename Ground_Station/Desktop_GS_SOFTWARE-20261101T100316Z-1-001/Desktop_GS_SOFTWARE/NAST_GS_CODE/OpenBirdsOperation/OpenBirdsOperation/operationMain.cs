@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -88,27 +89,97 @@ namespace OpenBirdsOperation
 
         public string call_sign;
 
-        private static string FindRepoDataFile(params string[] relativeCandidates)
+        public static string FindRepoDataFile(params string[] relativeCandidates)
         {
-            var bases = new List<string>();
-            try { bases.Add(AppDomain.CurrentDomain.BaseDirectory); } catch { }
-            try { bases.Add(Path.GetDirectoryName(Application.ExecutablePath)); } catch { }
-            try { bases.Add(Directory.GetCurrentDirectory()); } catch { }
+            var seedDirs = new List<string>();
+            try { seedDirs.Add(AppDomain.CurrentDomain.BaseDirectory); } catch { }
+            try { seedDirs.Add(Path.GetDirectoryName(Application.ExecutablePath)); } catch { }
+            try { seedDirs.Add(Directory.GetCurrentDirectory()); } catch { }
 
-            foreach (var root in bases)
+            var searchRoots = new List<string>();
+            foreach (var seed in seedDirs)
             {
-                if (string.IsNullOrEmpty(root)) continue;
-                foreach (var rel in relativeCandidates)
+                if (string.IsNullOrEmpty(seed)) continue;
+                string cur = seed;
+                for (int depth = 0; depth <= 6 && !string.IsNullOrEmpty(cur); depth++)
                 {
+                    if (!searchRoots.Contains(cur)) searchRoots.Add(cur);
                     try
                     {
-                        string p = Path.GetFullPath(Path.Combine(root, rel.Replace('\\', Path.DirectorySeparatorChar)));
-                        if (File.Exists(p)) return p;
+                        var parent = Directory.GetParent(cur);
+                        cur = parent != null ? parent.FullName : null;
                     }
-                    catch { }
+                    catch { cur = null; }
+                }
+            }
+
+            string[] prefixes = new string[] {
+                "",
+                "NAST_GS_CODE/",
+                "Desktop_GS_SOFTWARE/NAST_GS_CODE/",
+                "Desktop_GS_SOFTWARE-20261101T100316Z-1-001/Desktop_GS_SOFTWARE/NAST_GS_CODE/",
+                "Ground_Station/Desktop_GS_SOFTWARE-20261101T100316Z-1-001/Desktop_GS_SOFTWARE/NAST_GS_CODE/"
+            };
+
+            foreach (var root in searchRoots)
+            {
+                foreach (var rel in relativeCandidates)
+                {
+                    if (string.IsNullOrEmpty(rel)) continue;
+                    string cleanRel = rel.Replace('\\', '/');
+                    while (cleanRel.StartsWith("../")) cleanRel = cleanRel.Substring(3);
+                    while (cleanRel.StartsWith("./")) cleanRel = cleanRel.Substring(2);
+
+                    foreach (var pfx in prefixes)
+                    {
+                        try
+                        {
+                            string candidate = Path.GetFullPath(Path.Combine(root, (pfx + cleanRel).Replace('/', Path.DirectorySeparatorChar)));
+                            if (File.Exists(candidate)) return candidate;
+                        }
+                        catch { }
+                    }
                 }
             }
             return null;
+        }
+
+        public static string ResolveStorageDir(string subFolder)
+        {
+            try
+            {
+                string tle = FindRepoDataFile("Utils/TLE/TLE.txt");
+                string baseStorage = null;
+                if (!string.IsNullOrEmpty(tle))
+                {
+                    // tle is at .../Desktop_GS_SOFTWARE/NAST_GS_CODE/Utils/TLE/TLE.txt
+                    DirectoryInfo d = Directory.GetParent(tle); // TLE
+                    if (d != null) d = d.Parent; // Utils
+                    if (d != null) d = d.Parent; // NAST_GS_CODE
+                    if (d != null && d.Parent != null)
+                    {
+                        baseStorage = Path.Combine(d.Parent.FullName, "Storage");
+                    }
+                }
+                if (string.IsNullOrEmpty(baseStorage))
+                {
+                    baseStorage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Storage");
+                }
+                string full = string.IsNullOrEmpty(subFolder)
+                    ? baseStorage
+                    : Path.Combine(baseStorage, subFolder.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
+                if (!Directory.Exists(full))
+                {
+                    Directory.CreateDirectory(full);
+                }
+                return full;
+            }
+            catch
+            {
+                string fallback = Path.Combine(Path.GetTempPath(), "OpenBirdsOperation_Storage", subFolder ?? "");
+                try { Directory.CreateDirectory(fallback); } catch { }
+                return fallback;
+            }
         }
 
         List<Tle> tleList;
@@ -245,54 +316,89 @@ namespace OpenBirdsOperation
 
         private void setSatelliteComboList()
         {
-            //Parse tle from file
-            if (!System.IO.File.Exists(tlePath))
+            if (string.IsNullOrEmpty(tlePath) || !System.IO.File.Exists(tlePath))
             {
-                MessageBox.Show("TLE File doesn't exist. \n", "File Error!", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tlePath = FindRepoDataFile("Utils/TLE/TLE.txt") ?? tlePath;
+            }
+            if (string.IsNullOrEmpty(freqPath) || !System.IO.File.Exists(freqPath))
+            {
+                freqPath = FindRepoDataFile("Utils/frequency_list/FreqList.csv") ?? freqPath;
+            }
+
+            //Parse tle from file
+            if (string.IsNullOrEmpty(tlePath) || !System.IO.File.Exists(tlePath))
+            {
+                Console.WriteLine("Warning: TLE file not found at startup.");
                 return;
             }
-            tleList = ParserTLE.ParseFile(tlePath);
-            SatelliteNameComboBox.Items.Clear();
-            SatelliteNameComboBoxSub.Items.Clear();
 
-            foreach (var tle in tleList)
+            try
             {
-                if (!System.IO.File.Exists(freqPath))
-                {
-                    SatelliteNameComboBox.Items.Add(tle.getNoradID());
-                    SatelliteNameComboBoxSub.Items.Add(tle.getNoradID());
-                }
-                else
-                {
+                tleList = ParserTLE.ParseFile(tlePath);
+                SatelliteNameComboBox.Items.Clear();
+                SatelliteNameComboBoxSub.Items.Clear();
 
-                    using (var parser = new TextFieldParser(freqPath))
+                foreach (var tle in tleList)
+                {
+                    if (string.IsNullOrEmpty(freqPath) || !System.IO.File.Exists(freqPath))
                     {
-                        parser.Delimiters = new string[] { "," };
-                        while (!parser.EndOfData)
+                        SatelliteNameComboBox.Items.Add(tle.getNoradID());
+                        SatelliteNameComboBoxSub.Items.Add(tle.getNoradID());
+                    }
+                    else
+                    {
+                        using (var parser = new TextFieldParser(freqPath))
                         {
-                            var fields = parser.ReadFields();
-                            if (fields[1] == tle.getNoradID())
+                            parser.Delimiters = new string[] { "," };
+                            while (!parser.EndOfData)
                             {
-                                SatelliteNameComboBox.Items.Add(fields[0]);
-                                SatelliteNameComboBoxSub.Items.Add(fields[0]);
-                                break;
+                                var fields = parser.ReadFields();
+                                if (fields != null && fields.Length >= 2 && fields[1] == tle.getNoradID())
+                                {
+                                    SatelliteNameComboBox.Items.Add(fields[0]);
+                                    SatelliteNameComboBoxSub.Items.Add(fields[0]);
+                                    break;
+                                }
                             }
                         }
                     }
                 }
 
+                if (SatelliteNameComboBox.Items.Count > 0 && SatelliteNameComboBox.SelectedIndex < 0)
+                {
+                    SatelliteNameComboBox.SelectedIndex = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Warning: Failed to parse TLE/FreqList: " + ex.Message);
             }
         }
 
         private void updateSavingPath()
         {
-            rootPath = (Properties.Settings.Default.savingPath ?? "../Storage/LOG_DETAILS").Replace('\\', Path.DirectorySeparatorChar);
-
-            savingRootPath = rootPath;
-
-            if (!Directory.Exists(savingRootPath))
+            try
             {
-                Directory.CreateDirectory(savingRootPath);
+                string cfgPath = null;
+                try { cfgPath = Properties.Settings.Default.savingPath; } catch { }
+                if (string.IsNullOrEmpty(cfgPath) || cfgPath.StartsWith(".."))
+                {
+                    rootPath = ResolveStorageDir("LOG_DETAILS");
+                }
+                else
+                {
+                    rootPath = cfgPath.Replace('\\', Path.DirectorySeparatorChar);
+                }
+                savingRootPath = rootPath;
+                if (!Directory.Exists(savingRootPath))
+                {
+                    Directory.CreateDirectory(savingRootPath);
+                }
+            }
+            catch
+            {
+                savingRootPath = ResolveStorageDir("LOG_DETAILS");
+                rootPath = savingRootPath;
             }
         }
 
@@ -304,6 +410,22 @@ namespace OpenBirdsOperation
         public operationMain()
         {
             InitializeComponent();
+            this.Text = "Antarikchya Pratisthan Nepal - Satellite Ground Station (S2S-2)";
+            try
+            {
+                string logoPath = FindRepoDataFile("Images/apn_logo.png", "antarikshya_logo.png");
+                if (!string.IsNullOrEmpty(logoPath) && File.Exists(logoPath))
+                {
+                    pictureBox1.Image = Image.FromFile(logoPath);
+                }
+                string flagPath = FindRepoDataFile("Images/Nepal_FLAG.png", "nepal_flag_hq.png", "nepal_flag.png");
+                if (!string.IsNullOrEmpty(flagPath) && File.Exists(flagPath))
+                {
+                    pictureBox2.Image = Image.FromFile(flagPath);
+                }
+            }
+            catch { }
+
             TncPort.DataReceived += new SerialDataReceivedEventHandler(DataReceived); //DataReceived is the event handler
             commandList = new commandList();
             commandList.formMain = this;
@@ -330,27 +452,18 @@ namespace OpenBirdsOperation
             RotatorConnectButton.Enabled = false;
             RotatorBaudComboBox.Enabled = false;
 
-            /*
-            SatelliteNameComboBox.Enabled = false;
-            buttonMinus500Hz.Enabled = false;
-            buttonMinus1kHz.Enabled = false;
-            buttonMinus5kHz.Enabled = false;
-            buttonPulus500Hz.Enabled = false;
-            buttonPulus1kHz.Enabled = false;
-            buttonPulus5kHz.Enabled = false;
-            */
             savingFolderPathTextBox.Text = savingRootPath;
-            //            TransmitButton.Enabled = false;
             SaveReceiveDataButton.Enabled = false;
 
-
-            //Add port list into each COM port ComboBox (prioritize USB/ACM serial ports)
-            string[] rawPorts = SerialPort.GetPortNames();
+            //Add port list into each COM port ComboBox (prioritize USB/ACM/COM serial ports)
+            string[] rawPorts = new string[0];
+            try { rawPorts = SerialPort.GetPortNames(); } catch { }
             List<string> ports = new List<string>();
             foreach (string p in rawPorts)
             {
                 if (p.IndexOf("ttyUSB", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    p.IndexOf("ttyACM", StringComparison.OrdinalIgnoreCase) >= 0)
+                    p.IndexOf("ttyACM", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    p.StartsWith("COM", StringComparison.OrdinalIgnoreCase))
                 {
                     ports.Add(p);
                 }
@@ -390,75 +503,77 @@ namespace OpenBirdsOperation
             RotatorConnectButton.Enabled = true;
             RotatorBaudComboBox.Enabled = true;
 
-            //Number of COM port is more than 1 -> TNC COM port is enabled
             if (TncPortComboBox.Items.Count >= 1)
             {
                 TncPortComboBox.SelectedIndex = 0;
-                //From BIRDS-1, for TNC Port, added Radio Port
             }
 
-            //Number of COM port is more than 2 -> Radio COM port is enabled
             if (RadioPortComboBox.Items.Count >= 2)
             {
                 RadioPortComboBox.SelectedIndex = 1;
             }
 
-            //Number of COM port is more than 3 -> Rotator COM port is enabled
             if (RotatorPortComboBox.Items.Count >= 3)
             {
                 RotatorPortComboBox.SelectedIndex = 2;
             }
 
-            radioModelComboBox.SelectedIndex = 0;
-            //            rotatorModelComboBox.SelectedIndex = 0;
-            if (0 <= Properties.Settings.Default.rotatorModel && Properties.Settings.Default.rotatorModel < 2)
+            if (radioModelComboBox.Items.Count > 0)
             {
-                rotatorModelComboBox.SelectedIndex = Properties.Settings.Default.rotatorModel;
+                radioModelComboBox.SelectedIndex = 0;
             }
+            try
+            {
+                if (0 <= Properties.Settings.Default.rotatorModel &&
+                    Properties.Settings.Default.rotatorModel < rotatorModelComboBox.Items.Count)
+                {
+                    rotatorModelComboBox.SelectedIndex = Properties.Settings.Default.rotatorModel;
+                }
+                else if (rotatorModelComboBox.Items.Count > 0)
+                {
+                    rotatorModelComboBox.SelectedIndex = 0;
+                }
+            }
+            catch { }
 
-            tlePath = Properties.Settings.Default.tlePath;
+            try { tlePath = Properties.Settings.Default.tlePath; } catch { }
             if (string.IsNullOrEmpty(tlePath) || !File.Exists(tlePath))
             {
-                tlePath = FindRepoDataFile(
-                    "Utils/TLE/TLE.txt",
-                    "../Utils/TLE/TLE.txt",
-                    "../../Utils/TLE/TLE.txt",
-                    "../../../Utils/TLE/TLE.txt",
-                    "../../../../Utils/TLE/TLE.txt"
-                ) ?? tlePath;
+                tlePath = FindRepoDataFile("Utils/TLE/TLE.txt") ?? "";
             }
             tlePathTextBox.Text = tlePath;
 
-            freqPath = Properties.Settings.Default.freqPath;
+            try { freqPath = Properties.Settings.Default.freqPath; } catch { }
             if (string.IsNullOrEmpty(freqPath) || !File.Exists(freqPath))
             {
-                freqPath = FindRepoDataFile(
-                    "Utils/frequency_list/FreqList.csv",
-                    "../Utils/frequency_list/FreqList.csv",
-                    "../../Utils/frequency_list/FreqList.csv",
-                    "../../../Utils/frequency_list/FreqList.csv",
-                    "../../../../Utils/frequency_list/FreqList.csv"
-                ) ?? freqPath;
+                freqPath = FindRepoDataFile("Utils/frequency_list/FreqList.csv") ?? "";
             }
             freqPathTextBox.Text = freqPath;
 
-
-            SatelliteNameComboBox.Enabled = true;   //test
+            SatelliteNameComboBox.Enabled = true;
             setSatelliteComboList();
 
-            latitudeTextBox.Text = Properties.Settings.Default.latitude.ToString("0.0000");
-            longitudeTextBox.Text = Properties.Settings.Default.longitude.ToString("0.0000");
-            heightTextBox.Text = Properties.Settings.Default.height.ToString("0.0");
+            try
+            {
+                latitude = Properties.Settings.Default.latitude;
+                longitude = Properties.Settings.Default.longitude;
+                height = Properties.Settings.Default.height;
+            }
+            catch { }
 
-            latitude = Convert.ToDouble(latitudeTextBox.Text);
-            longitude = Convert.ToDouble(longitudeTextBox.Text);
-            height = Convert.ToDouble(heightTextBox.Text);
+            latitudeTextBox.Text = latitude.ToString("0.0000", CultureInfo.InvariantCulture);
+            longitudeTextBox.Text = longitude.ToString("0.0000", CultureInfo.InvariantCulture);
+            heightTextBox.Text = height.ToString("0.0", CultureInfo.InvariantCulture);
 
-            civAddressTextBox.Text = Properties.Settings.Default.CIVaddress.ToString("X00");
-            civAddress = Properties.Settings.Default.CIVaddress;
+            try
+            {
+                civAddress = Properties.Settings.Default.CIVaddress;
+            }
+            catch { civAddress = 124; }
+            civAddressTextBox.Text = civAddress.ToString("X00");
 
             trackingCheckBox.Checked = false;
-            frequencyAddjustValueLavel.Text = freqAddjustValue.ToString();
+            frequencyAddjustValueLavel.Text = freqAddjustValue.ToString(CultureInfo.InvariantCulture);
 
             trackingTimer = new System.Windows.Forms.Timer();
             trackingTimer.Interval = 100;   //every 0.1sec
@@ -470,129 +585,96 @@ namespace OpenBirdsOperation
             serialPollTimer.Tick += SerialPollTimer_Tick;
             serialPollTimer.Enabled = true;
 
-            azHomeValue = Properties.Settings.Default.azHome;
-            elHomeValue = Properties.Settings.Default.elHome;
+            try
+            {
+                azHomeValue = Properties.Settings.Default.azHome;
+                elHomeValue = Properties.Settings.Default.elHome;
+            }
+            catch { azHomeValue = 100; elHomeValue = 90; }
 
-            azHomeTextBox.Text = azHomeValue.ToString(".0");
-            elHomeTextBox.Text = elHomeValue.ToString(".0");
+            azHomeTextBox.Text = azHomeValue.ToString("0.0", CultureInfo.InvariantCulture);
+            elHomeTextBox.Text = elHomeValue.ToString("0.0", CultureInfo.InvariantCulture);
 
             mTCallSign.Enabled = false;
-            call_sign = Properties.Settings.Default.callsign;
+            try { call_sign = Properties.Settings.Default.callsign ?? ""; } catch { call_sign = ""; }
             mTCallSign.Text = call_sign;
 
             TransmitButton.Enabled = false;
 
-            string saveAddress = "../Storage/ADDRESS_DETAILS";
-
-            if (!Directory.Exists(saveAddress))
+            try
             {
-                Directory.CreateDirectory(saveAddress);
-            }
+                string folderPathAddr = ResolveStorageDir("ADDRESS_DETAILS");
+                string fileNameAddr = "Address_Data.xlsx";
+                string absolutePathAddr = System.IO.Path.Combine(folderPathAddr, fileNameAddr);
 
-            string folderPathAddr = saveAddress;
-            string fileNameAddr;
-            string absolutePathAddr;
+                ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
 
-            fileNameAddr = "Address_Data.xlsx";
-            absolutePathAddr = System.IO.Path.Combine(folderPathAddr, fileNameAddr);
-
-            // Set the license context to NonCommercial or Commercial based on your use case
-            ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;  // or LicenseContext.Commercial for commercial use
-
-            if (!File.Exists(absolutePathAddr))
-            {
-                // Create a new Excel file if it doesn't exist
-                using (var package = new ExcelPackage(new FileInfo(absolutePathAddr)))
+                if (!File.Exists(absolutePathAddr))
                 {
-                    var worksheet = package.Workbook.Worksheets.Add("Address_Information");
-
-                    // Set headers in the first row
-                    worksheet.Cells["A1:D1"].Merge = true;
-                    worksheet.Cells["A1:D1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                    worksheet.Cells["A1:D1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-                    worksheet.Cells[1, 1].Value = "HK Data";
-
-                    worksheet.Cells["F1:I1"].Merge = true;
-                    worksheet.Cells["F1:I1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                    worksheet.Cells["F1:I1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-                    worksheet.Cells[1, 6].Value = "ADCS";
-
-                    worksheet.Cells["K1:N1"].Merge = true;
-                    worksheet.Cells["K1:N1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                    worksheet.Cells["K1:N1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-                    worksheet.Cells[1, 11].Value = "Camera";
-
-                    worksheet.Cells["P1:S1"].Merge = true;
-                    worksheet.Cells["P1:S1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                    worksheet.Cells["P1:S1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-                    worksheet.Cells[1, 16].Value = "EPDM";
-
-                    worksheet.Cells["U1:X1"].Merge = true;
-                    worksheet.Cells["U1:X1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-                    worksheet.Cells["U1:X1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
-                    worksheet.Cells[1, 21].Value = "Digipeater";
-
-                    worksheet.Cells[2, 1].Value = "SN";
-                    worksheet.Cells[2, 2].Value = "Time Stamp";
-                    worksheet.Cells[2, 3].Value = "Command";
-                    worksheet.Cells[2, 4].Value = "No of Packets";
-
-                    worksheet.Cells[2, 6].Value = "SN";
-                    worksheet.Cells[2, 7].Value = "Time Stamp";
-                    worksheet.Cells[2, 8].Value = "Command";
-                    worksheet.Cells[2, 9].Value = "No of Packets";
-
-                    worksheet.Cells[2, 11].Value = "SN";
-                    worksheet.Cells[2, 12].Value = "Time Stamp";
-                    worksheet.Cells[2, 13].Value = "Command";
-                    worksheet.Cells[2, 14].Value = "No of Packets";
-
-                    worksheet.Cells[2, 16].Value = "SN";
-                    worksheet.Cells[2, 17].Value = "Time Stamp";
-                    worksheet.Cells[2, 18].Value = "Command";
-                    worksheet.Cells[2, 19].Value = "No of Packets";
-
-                    worksheet.Cells[2, 21].Value = "SN";
-                    worksheet.Cells[2, 22].Value = "Time Stamp";
-                    worksheet.Cells[2, 23].Value = "Command";
-                    worksheet.Cells[2, 24].Value = "No of Packets";
-
-                    worksheet.Row(1).Style.Font.Bold = true;
-                    worksheet.Row(2).Style.Font.Bold = true;
-
-                    package.Save();
-
-                    Task.Delay(1000);
-                    // open the excel file
-                    try
+                    using (var package = new ExcelPackage(new FileInfo(absolutePathAddr)))
                     {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = absolutePathAddr,
-                            UseShellExecute = true
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Info: skipped auto-opening Excel file ({ex.Message})");
-                        Console.WriteLine($"Error opening file: {ex.Message}");
+                        var worksheet = package.Workbook.Worksheets.Add("Address_Information");
+
+                        worksheet.Cells["A1:D1"].Merge = true;
+                        worksheet.Cells["A1:D1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                        worksheet.Cells["A1:D1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                        worksheet.Cells[1, 1].Value = "HK Data";
+
+                        worksheet.Cells["F1:I1"].Merge = true;
+                        worksheet.Cells["F1:I1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                        worksheet.Cells["F1:I1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                        worksheet.Cells[1, 6].Value = "ADCS";
+
+                        worksheet.Cells["K1:N1"].Merge = true;
+                        worksheet.Cells["K1:N1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                        worksheet.Cells["K1:N1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                        worksheet.Cells[1, 11].Value = "Camera";
+
+                        worksheet.Cells["P1:S1"].Merge = true;
+                        worksheet.Cells["P1:S1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                        worksheet.Cells["P1:S1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                        worksheet.Cells[1, 16].Value = "EPDM";
+
+                        worksheet.Cells["U1:X1"].Merge = true;
+                        worksheet.Cells["U1:X1"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                        worksheet.Cells["U1:X1"].Style.VerticalAlignment = OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+                        worksheet.Cells[1, 21].Value = "Digipeater";
+
+                        worksheet.Cells[2, 1].Value = "SN";
+                        worksheet.Cells[2, 2].Value = "Time Stamp";
+                        worksheet.Cells[2, 3].Value = "Command";
+                        worksheet.Cells[2, 4].Value = "No of Packets";
+
+                        worksheet.Cells[2, 6].Value = "SN";
+                        worksheet.Cells[2, 7].Value = "Time Stamp";
+                        worksheet.Cells[2, 8].Value = "Command";
+                        worksheet.Cells[2, 9].Value = "No of Packets";
+
+                        worksheet.Cells[2, 11].Value = "SN";
+                        worksheet.Cells[2, 12].Value = "Time Stamp";
+                        worksheet.Cells[2, 13].Value = "Command";
+                        worksheet.Cells[2, 14].Value = "No of Packets";
+
+                        worksheet.Cells[2, 16].Value = "SN";
+                        worksheet.Cells[2, 17].Value = "Time Stamp";
+                        worksheet.Cells[2, 18].Value = "Command";
+                        worksheet.Cells[2, 19].Value = "No of Packets";
+
+                        worksheet.Cells[2, 21].Value = "SN";
+                        worksheet.Cells[2, 22].Value = "Time Stamp";
+                        worksheet.Cells[2, 23].Value = "Command";
+                        worksheet.Cells[2, 24].Value = "No of Packets";
+
+                        worksheet.Row(1).Style.Font.Bold = true;
+                        worksheet.Row(2).Style.Font.Bold = true;
+
+                        package.Save();
                     }
                 }
             }
-            else
+            catch (Exception ex)
             {
-                if (Environment.OSVersion.Platform != PlatformID.Unix && Environment.OSVersion.Platform != PlatformID.MacOSX)
-                {
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = absolutePathAddr,
-                            UseShellExecute = true
-                        });
-                    }
-                    catch { }
-                }
+                Console.WriteLine("Info: Address_Data.xlsx init skipped: " + ex.Message);
             }
 
             // Auto-connect to Ground Station USB UART (/dev/ttyUSB* or /dev/ttyACM*) on startup if available
@@ -743,6 +825,13 @@ namespace OpenBirdsOperation
             var _ = Transmit_async();
         }
 
+        public void TransmitRealCameraCaptureCommand()
+        {
+            Command_HEX.Text = "53 04 CC 5E BC 00 00 00 00 00 00 00 00";
+            Comments.Text = "Real Camera Capture to Flash (CAMON / SNAP)";
+            var _ = Transmit_async();
+        }
+
         public void TransmitHkCommand(int pktCount)
         {
             if (pktCount <= 0) pktCount = 1;
@@ -865,94 +954,94 @@ namespace OpenBirdsOperation
         //tracking function that timer call every 1 or 0.1 sec
         public void satTracking(object sender, EventArgs e)
         {
-
-            double deltaT = 0.1;         //deltaT = 0.1s
-            double speedOfLight = 299792458;      //unit : m/s
-            int correctedFreqency;
-            double rangingSpeed;
-
-            UpdateTrackingValueDelegate UTVD = new UpdateTrackingValueDelegate(UpdateTrakingValue);
-
-            if (selectedTle == null)
+            if (this.IsDisposed || !this.IsHandleCreated)
             {
-                this.Invoke(UTVD, 0, azHomeValue, elHomeValue);
                 return;
             }
 
-            if (!trackingCheckBox.Checked)
+            try
             {
+                double deltaT = 0.1;         //deltaT = 0.1s
+                double speedOfLight = 299792458;      //unit : m/s
+                int correctedFreqency;
+                double rangingSpeed;
+
+                UpdateTrackingValueDelegate UTVD = new UpdateTrackingValueDelegate(UpdateTrakingValue);
+
+                if (selectedTle == null)
+                {
+                    this.Invoke(UTVD, 0, azHomeValue, elHomeValue);
+                    return;
+                }
+
+                if (!trackingCheckBox.Checked)
+                {
+                    if (uplinkFlag)
+                    {
+                        //FM uplink
+                        correctedFreqency = (int)((ulFreq + freqAddjustValue));
+                    }
+                    else
+                    {
+                        if (CwRadioButton.Checked)
+                        {
+                            //CW listning
+                            correctedFreqency = (int)((cwFreq + freqAddjustValue));
+                        }
+                        else
+                        {
+                            //FM downlink
+                            correctedFreqency = (int)((dlFreq + freqAddjustValue));
+                        }
+                    }
+                    this.Invoke(UTVD, correctedFreqency, azHomeValue, elHomeValue);
+                    return;
+                }
+
+                //Create Time points
+                EpochTime currentTime = new EpochTime(DateTime.UtcNow);
+                EpochTime nextTime = new EpochTime(DateTime.UtcNow.AddMilliseconds(deltaT * 1000));
+                //Calculate Satellite Position and Speed
+                One_Sgp4.Sgp4 sgp4Propagator = new Sgp4(selectedTle, Sgp4.wgsConstant.WGS_84);
+                //set calculation parameters StartTime, EndTime and caclulation steps in minutes
+                sgp4Propagator.runSgp4Cal(currentTime, nextTime, 1 / 60.0 * deltaT);  //100msec
+                List<One_Sgp4.Sgp4Data> resultDataList = sgp4Propagator.getResults();
+                if (resultDataList == null || resultDataList.Count < 2)
+                {
+                    return;
+                }
+
+                One_Sgp4.Coordinate observer = new Coordinate(latitude, longitude, height);
+
+                //Calculate Sperical Coordinates from an Observer to Satellite
+                //returns 3D-Point with range(km), azimuth(radians), elevation(radians) to the Satellite
+                One_Sgp4.Point3d spherical = One_Sgp4.SatFunctions.calcSphericalCoordinate(observer, currentTime, resultDataList[0]);
+                One_Sgp4.Point3d nextSpherical = One_Sgp4.SatFunctions.calcSphericalCoordinate(observer, currentTime, resultDataList[1]);
+
+                rangingSpeed = (nextSpherical.x - spherical.x) * 1000 / deltaT;  //unit : m/s
+
                 if (uplinkFlag)
                 {
                     //FM uplink
-                    correctedFreqency = (int)((ulFreq + freqAddjustValue));
+                    correctedFreqency = (int)((ulFreq - freqAddjustValue) * (1 + rangingSpeed / speedOfLight));
                 }
                 else
                 {
                     if (CwRadioButton.Checked)
                     {
                         //CW listning
-                        correctedFreqency = (int)((cwFreq + freqAddjustValue));
+                        correctedFreqency = (int)((cwFreq + freqAddjustValue) * (1 - rangingSpeed / speedOfLight));
                     }
                     else
                     {
                         //FM downlink
-                        correctedFreqency = (int)((dlFreq + freqAddjustValue));
+                        correctedFreqency = (int)((dlFreq + freqAddjustValue) * (1 - rangingSpeed / speedOfLight));
                     }
                 }
-                this.Invoke(UTVD, correctedFreqency, azHomeValue, elHomeValue);
-                return;
+
+                this.Invoke(UTVD, correctedFreqency, spherical.y, spherical.z);
             }
-
-            //Create Time points
-            EpochTime currentTime = new EpochTime(DateTime.UtcNow);
-            EpochTime nextTime = new EpochTime(DateTime.UtcNow.AddMilliseconds(deltaT * 1000));
-            //Calculate Satellite Position and Speed
-            One_Sgp4.Sgp4 sgp4Propagator = new Sgp4(selectedTle, Sgp4.wgsConstant.WGS_84);
-            //set calculation parameters StartTime, EndTime and caclulation steps in minutes
-            sgp4Propagator.runSgp4Cal(currentTime, nextTime, 1 / 60.0 * deltaT);  //100msec
-            List<One_Sgp4.Sgp4Data> resultDataList = new List<Sgp4Data>();
-            //Return Results containing satellite Position x,y,z (ECI-Coordinates in Km) and Velocity x_d, y_d, z_d (ECI-Coordinates km/s) 
-            resultDataList = sgp4Propagator.getResults();
-
-            //Coordinate of an observer on Ground lat, long, height(in meters)
-            //            One_Sgp4.Coordinate observer = new Coordinate(latitude, longitude, height);
-            //Coordinate of an observer on Ground lat, long, height(in meters)
-
-            //            One_Sgp4.Coordinate observer = new Coordinate(33.8925, 130.8402, 42.0);
-            One_Sgp4.Coordinate observer = new Coordinate(latitude, longitude, height);
-
-
-
-            //Calculate Sperical Coordinates from an Observer to Satellite
-            //returns 3D-Point with range(km), azimuth(radians), elevation(radians) to the Satellite
-            One_Sgp4.Point3d spherical = One_Sgp4.SatFunctions.calcSphericalCoordinate(observer, currentTime, resultDataList[0]);
-            One_Sgp4.Point3d nextSpherical = One_Sgp4.SatFunctions.calcSphericalCoordinate(observer, currentTime, resultDataList[1]);
-
-            rangingSpeed = (nextSpherical.x - spherical.x) * 1000 / deltaT;  //unit : m/s
-
-            if (uplinkFlag)
-            {
-                //FM uplink
-                correctedFreqency = (int)((ulFreq - freqAddjustValue) * (1 + rangingSpeed / speedOfLight));
-
-                //by assuming freq addjust is coused by doppler shift and orbit calculating error. freqAddjustValue should be opposit.
-            }
-            else
-            {
-                if (CwRadioButton.Checked)
-                {
-                    //CW listning
-                    correctedFreqency = (int)((cwFreq + freqAddjustValue) * (1 - rangingSpeed / speedOfLight));
-                }
-                else
-                {
-                    //FM downlink
-                    correctedFreqency = (int)((dlFreq + freqAddjustValue) * (1 - rangingSpeed / speedOfLight));
-                }
-            }
-
-            this.Invoke(UTVD, correctedFreqency, spherical.y, spherical.z);
-
+            catch { }
         }
 
         public void ChangeUplinkFrequency()
@@ -2374,44 +2463,63 @@ namespace OpenBirdsOperation
 
         private void SatelliteNameComboBoxSub_SelectedIndexChanged(object sender, EventArgs e)
         {
-            SatelliteNameComboBox.SelectedIndex = SatelliteNameComboBoxSub.SelectedIndex;
-
-            using (var parser = new TextFieldParser(freqPath))
+            try
             {
-                parser.Delimiters = new string[] { "," };
-                while (!parser.EndOfData)
+                if (SatelliteNameComboBox.SelectedIndex != SatelliteNameComboBoxSub.SelectedIndex &&
+                    SatelliteNameComboBoxSub.SelectedIndex >= 0 &&
+                    SatelliteNameComboBoxSub.SelectedIndex < SatelliteNameComboBox.Items.Count)
                 {
-                    var fields = parser.ReadFields();
-                    if (fields[0] == SatelliteNameComboBoxSub.SelectedItem.ToString())
+                    SatelliteNameComboBox.SelectedIndex = SatelliteNameComboBoxSub.SelectedIndex;
+                }
+
+                if (string.IsNullOrEmpty(freqPath) || !File.Exists(freqPath) || SatelliteNameComboBoxSub.SelectedItem == null)
+                {
+                    if (tleList != null && tleList.Count > 0 && selectedTle == null)
                     {
-                        noradIdLabel.Text = fields[1];
+                        selectedTle = tleList[0];
+                    }
+                    return;
+                }
 
-                        cwFreq = Convert.ToDouble(fields[2]);
-                        ulFreq = Convert.ToDouble(fields[3]);
-                        dlFreq = Convert.ToDouble(fields[4]);
-
-
-                        dlFreqLabel.Text = (dlFreq / 1000000).ToString();
-                        ulFreqLabel.Text = (ulFreq / 1000000).ToString();
-                        remarkLabel.Text = fields[5];
-                        folderNameLabel.Text = fields[6];
-                        satFolderName = fields[6];
-
-                        foreach (var tle in tleList)
+                using (var parser = new TextFieldParser(freqPath))
+                {
+                    parser.Delimiters = new string[] { "," };
+                    while (!parser.EndOfData)
+                    {
+                        var fields = parser.ReadFields();
+                        if (fields != null && fields.Length >= 7 &&
+                            fields[0] == SatelliteNameComboBoxSub.SelectedItem.ToString())
                         {
-                            if (tle.getNoradID() == noradIdLabel.Text)
-                            {
-                                selectedTle = tle;
-                                break;
-                            }
-                        }
+                            noradIdLabel.Text = fields[1];
 
-                        break;
+                            double.TryParse(fields[2], NumberStyles.Any, CultureInfo.InvariantCulture, out cwFreq);
+                            double.TryParse(fields[3], NumberStyles.Any, CultureInfo.InvariantCulture, out ulFreq);
+                            double.TryParse(fields[4], NumberStyles.Any, CultureInfo.InvariantCulture, out dlFreq);
+
+                            dlFreqLabel.Text = (dlFreq / 1000000).ToString(CultureInfo.InvariantCulture);
+                            ulFreqLabel.Text = (ulFreq / 1000000).ToString(CultureInfo.InvariantCulture);
+                            remarkLabel.Text = fields[5];
+                            folderNameLabel.Text = fields[6];
+                            satFolderName = fields[6];
+
+                            if (tleList != null)
+                            {
+                                foreach (var tle in tleList)
+                                {
+                                    if (tle.getNoradID() == noradIdLabel.Text)
+                                    {
+                                        selectedTle = tle;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            break;
+                        }
                     }
                 }
             }
-
-
+            catch { }
         }
 
         private void button1_Click(object sender, EventArgs e)  //Freq List Button

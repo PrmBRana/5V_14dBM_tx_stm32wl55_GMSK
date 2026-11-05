@@ -41,6 +41,13 @@ import threading
 import io
 import socket
 import subprocess
+
+# Auto-load bundled portable libraries (serial, openpyxl, etc.)
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_pylibs_dir = os.path.join(_script_dir, "utilities", "pylibs")
+if os.path.isdir(_pylibs_dir) and _pylibs_dir not in sys.path:
+    sys.path.insert(0, _pylibs_dir)
+
 try:
     from PIL import Image, ImageTk, ImageFile
     ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -165,6 +172,7 @@ TX_FREQ_STR = "437.375 MHz (Uplink)"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGO_PATH = os.path.join(SCRIPT_DIR, "antarikshya_logo.png")
+FLAG_HQ_PATH = os.path.join(SCRIPT_DIR, "nepal_flag_hq.png")
 FLAG_PATH = os.path.join(SCRIPT_DIR, "nepal_flag.png")
 FLAG_HEADER_PATH = os.path.join(SCRIPT_DIR, "nepal_flag_header.png")
 GMSK_LOG_FILE = os.path.join(SCRIPT_DIR, "gmsk_log.csv")
@@ -731,9 +739,9 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
         return
 
     root = tk.Tk()
-    root.title(f"{ORG_NE} | {ORG_EN} - {APP_TITLE}")
-    root.geometry("1280x880")
-    root.minsize(1040, 720)
+    root.title(f"Antarikchya Pratisthan Nepal (APN) | {ORG_NE} - All-In-One Ground Station Mission Control")
+    root.geometry("1440x920")
+    root.minsize(1060, 700)
     root.configure(bg="#F1F5F9")  # Slate-100 Light Background
 
     # =========================================================================
@@ -1276,13 +1284,29 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
             print("[WARN] Could not load logo image:", ex)
             logo_img = None
 
-    # 2. Nepal Flag Container
+    # 2. Organization Title Box with Correct Nepali & English Names (Left-Aligned next to Logo)
+    org_box = tk.Frame(header_frame, bg="#FFFFFF")
+    org_box.pack(side=tk.LEFT, padx=10, pady=4)
+    ne_img = render_devanagari(ORG_NE, 24, PRIMARY_BLUE)
+    if ne_img is not None:
+        header_frame.ne_img = ne_img
+        tk.Label(org_box, image=ne_img, bg="#FFFFFF").pack(anchor="w")
+    else:
+        tk.Label(org_box, text=f"{ORG_NE}", bg="#FFFFFF", fg=PRIMARY_BLUE,
+                 font=("Lohit Devanagari", 14, "bold")).pack(anchor="w")
+    tk.Label(org_box, text="Antarikchya Pratisthan Nepal (APN)", bg="#FFFFFF", fg=CRIMSON,
+             font=("Segoe UI", 12, "bold")).pack(anchor="w")
+    tk.Label(org_box, text="S2S-2 CubeSat All-In-One Mission Control & Ground Station",
+             bg="#FFFFFF", fg=TEXT_MUTED, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+
+    # 3. Right Flag Container (Placed on the far right for official aerospace presence)
     flag_container = tk.Frame(header_frame, bg="#FFFFFF")
-    flag_container.pack(side=tk.LEFT, padx=(4, 12), pady=6)
+    flag_container.pack(side=tk.RIGHT, padx=(6, 14), pady=6)
 
     flag_img = None
-    flag_file_to_use = FLAG_PATH if os.path.exists(FLAG_PATH) else (
-        FLAG_HEADER_PATH if os.path.exists(FLAG_HEADER_PATH) else None)
+    flag_file_to_use = FLAG_HQ_PATH if os.path.exists(FLAG_HQ_PATH) else (
+        FLAG_PATH if os.path.exists(FLAG_PATH) else (
+            FLAG_HEADER_PATH if os.path.exists(FLAG_HEADER_PATH) else None))
     if flag_file_to_use and HAS_PIL:
         try:
             pil_flag = Image.open(flag_file_to_use)
@@ -1292,7 +1316,7 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
             pil_flag = pil_flag.resize((target_w, target_h), Image.Resampling.LANCZOS)
             flag_img = ImageTk.PhotoImage(pil_flag)
             flag_lbl = tk.Label(flag_container, image=flag_img, bg="#FFFFFF")
-            flag_lbl.pack(side=tk.LEFT)
+            flag_lbl.pack(side=tk.RIGHT)
             header_frame.flag_img = flag_img
         except Exception as ex:
             print("[WARN] Could not load flag image with PIL:", ex)
@@ -1302,15 +1326,15 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
         try:
             flag_img = tk.PhotoImage(file=flag_file_to_use)
             flag_lbl = tk.Label(flag_container, image=flag_img, bg="#FFFFFF")
-            flag_lbl.pack(side=tk.LEFT)
+            flag_lbl.pack(side=tk.RIGHT)
             header_frame.flag_img = flag_img
         except Exception:
             flag_img = None
 
-    if flag_img is None and logo_img is None:
+    if flag_img is None:
         flag_cv = tk.Canvas(flag_container, width=54, height=66, bg="#FFFFFF",
                             highlightthickness=0)
-        flag_cv.pack(side=tk.LEFT)
+        flag_cv.pack(side=tk.RIGHT)
         blue = PRIMARY_BLUE
         crimson = CRIMSON
         flag_cv.create_polygon(4, 4, 48, 32, 20, 32, 52, 64, 4, 64,
@@ -1321,24 +1345,9 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
         flag_cv.create_oval(14, 15, 26, 23, fill=crimson, outline=crimson)
         flag_cv.create_oval(15, 44, 25, 54, fill="white", outline="white")
 
-    # 3. Organization Title Box with Correct Nepali & English Names
-    org_box = tk.Frame(header_frame, bg="#FFFFFF")
-    org_box.pack(side=tk.LEFT, padx=6, pady=4)
-    ne_img = render_devanagari(ORG_NE, 22, PRIMARY_BLUE)
-    if ne_img is not None:
-        header_frame.ne_img = ne_img
-        tk.Label(org_box, image=ne_img, bg="#FFFFFF").pack(anchor="w")
-    else:
-        tk.Label(org_box, text=f"{ORG_NE}", bg="#FFFFFF", fg=PRIMARY_BLUE,
-                 font=("Lohit Devanagari", 14, "bold")).pack(anchor="w")
-    tk.Label(org_box, text=f"{ORG_EN}", bg="#FFFFFF", fg=CRIMSON,
-             font=("Segoe UI", 11, "bold")).pack(anchor="w")
-    tk.Label(org_box, text=f"{APP_TITLE}  •  Flight Operations Ground Console",
-             bg="#FFFFFF", fg=TEXT_MUTED, font=("Segoe UI", 9)).pack(anchor="w")
-
-    # 4. Right Badge Box with RF Info & One-Click Excel Export Button
+    # 4. Right Controls & RF Badge Box
     badge_box = tk.Frame(header_frame, bg="#FFFFFF")
-    badge_box.pack(side=tk.RIGHT, padx=14, pady=4)
+    badge_box.pack(side=tk.RIGHT, padx=10, pady=4)
 
     excel_top_box = tk.Frame(badge_box, bg="#FFFFFF")
     excel_top_box.pack(side=tk.RIGHT, padx=(12, 0))
@@ -1346,6 +1355,11 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
     ttk.Button(excel_top_box, text="📊 Export Excel (.xlsx)",
                command=lambda: export_all_to_excel(silent=False),
                style="Success.TButton").pack(side=tk.TOP, pady=2)
+
+    view_mode_btn = ttk.Button(excel_top_box, text="📑 Tabbed View",
+                               command=lambda: toggle_view_mode(),
+                               style="Action.TButton")
+    view_mode_btn.pack(side=tk.TOP, pady=2)
 
     ttk.Checkbutton(excel_top_box, text="Auto-Save on RX",
                     variable=auto_save_excel_var).pack(side=tk.TOP, pady=1)
@@ -1545,10 +1559,36 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
         set_ack_state("ok" if is_ok else "error", title, details)
 
     # =========================================================================
-    # MAIN NOTEBOOK: 3 FOCUSED TABS
+    # MASTER VIEW CONTAINER: ALL-IN-ONE CONSOLE (DEFAULT) + EXPANDED TABS
     # =========================================================================
-    nb = ttk.Notebook(root)
-    nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+    main_view_container = tk.Frame(root, bg=BG_MAIN)
+    main_view_container.pack(fill=tk.BOTH, expand=True, padx=6, pady=2)
+
+    aio_frame = tk.Frame(main_view_container, bg=BG_MAIN)
+    tabbed_frame = tk.Frame(main_view_container, bg=BG_MAIN)
+
+    current_view_mode = ["aio"]
+
+    def toggle_view_mode():
+        if current_view_mode[0] == "aio":
+            aio_frame.pack_forget()
+            tabbed_frame.pack(fill=tk.BOTH, expand=True)
+            current_view_mode[0] = "tabbed"
+            view_mode_btn.config(text="🌟 All-In-One Console")
+        else:
+            tabbed_frame.pack_forget()
+            aio_frame.pack(fill=tk.BOTH, expand=True)
+            current_view_mode[0] = "aio"
+            view_mode_btn.config(text="📑 Tabbed View")
+
+    aio_log = None
+    aio_cam_canvas = None
+    aio_cam_prog = None
+    aio_cmd_hist = None
+    aio_flash_preview = None
+
+    nb = ttk.Notebook(tabbed_frame)
+    nb.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
 
     tab_cmd = ttk.Frame(nb)
     tab_downlink = ttk.Frame(nb)
@@ -1576,14 +1616,15 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
     autoscroll_var = None
 
     def append_log(text, tag=None):
-        if raw_log is not None:
-            try:
-                raw_log.insert(tk.END, text, tag)
-                if autoscroll_var and autoscroll_var.get():
-                    raw_log.see(tk.END)
-            except Exception:
-                pass
-        else:
+        for logger in (aio_log, raw_log):
+            if logger is not None:
+                try:
+                    logger.insert(tk.END, text, tag)
+                    if autoscroll_var and autoscroll_var.get():
+                        logger.see(tk.END)
+                except Exception:
+                    pass
+        if aio_log is None and raw_log is None:
             print(text, end="")
 
     def send_text(text):
@@ -2170,16 +2211,21 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
                 if not has_eoi:
                     img_data = img_data + b"\xff\xd9"
                 pil_img = Image.open(io.BytesIO(img_data))
-                cw = max(cam_canvas.winfo_width(), 320)
-                ch = max(cam_canvas.winfo_height(), 240)
-                scale = min((cw - 20) / pil_img.width, (ch - 20) / pil_img.height, 2.5)
-                nw = max(int(pil_img.width * scale), 10)
-                nh = max(int(pil_img.height * scale), 10)
-                resized = pil_img.resize((nw, nh), Image.Resampling.LANCZOS)
-                tk_img = ImageTk.PhotoImage(resized)
-                cam_canvas.delete("all")
-                cam_canvas.create_image(cw // 2, ch // 2, image=tk_img, anchor=tk.CENTER)
-                cam_canvas.image = tk_img
+                for cv in (cam_canvas, aio_cam_canvas):
+                    if cv is not None:
+                        try:
+                            cw = max(cv.winfo_width(), 320)
+                            ch = max(cv.winfo_height(), 220)
+                            scale = min((cw - 20) / pil_img.width, (ch - 20) / pil_img.height, 2.5)
+                            nw = max(int(pil_img.width * scale), 10)
+                            nh = max(int(pil_img.height * scale), 10)
+                            im_resized = pil_img.resize((nw, nh), Image.Resampling.LANCZOS)
+                            tk_img_cv = ImageTk.PhotoImage(im_resized)
+                            cv.delete("all")
+                            cv.create_image(cw // 2, ch // 2, image=tk_img_cv, anchor=tk.CENTER)
+                            cv.image = tk_img_cv
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -2561,6 +2607,250 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
                    width=9).pack(side=tk.LEFT, padx=2)
 
     # =========================================================================
+    # ALL-IN-ONE UNIFIED MISSION CONTROL DASHBOARD (COMMAND + DECODE + CAM + LOG)
+    # =========================================================================
+    aio_main_paned = ttk.PanedWindow(aio_frame, orient=tk.VERTICAL)
+    aio_main_paned.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+
+    aio_top_paned = ttk.PanedWindow(aio_main_paned, orient=tk.HORIZONTAL)
+    aio_main_paned.add(aio_top_paned, weight=6)
+
+    # -------------------------------------------------------------------------
+    # COLUMN 1: TELECOMMAND CENTER (UPLINK 437.375 MHz)
+    # -------------------------------------------------------------------------
+    aio_col_cmd = ttk.Frame(aio_top_paned)
+    aio_top_paned.add(aio_col_cmd, weight=3)
+
+    cmd_box_aio = ttk.LabelFrame(aio_col_cmd, text=" 🕹️ Telecommand Center (TX: 437.375 MHz) ")
+    cmd_box_aio.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+    q_scroll_cv = tk.Canvas(cmd_box_aio, bg="#FFFFFF", highlightthickness=0)
+    q_scroll_bar = ttk.Scrollbar(cmd_box_aio, orient="vertical", command=q_scroll_cv.yview)
+    q_frame = tk.Frame(q_scroll_cv, bg="#FFFFFF")
+    q_frame.bind("<Configure>", lambda e: q_scroll_cv.configure(scrollregion=q_scroll_cv.bbox("all")))
+    q_scroll_cv.create_window((0, 0), window=q_frame, anchor="nw")
+    q_scroll_cv.configure(yscrollcommand=q_scroll_bar.set)
+    q_scroll_cv.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=2, pady=2)
+    q_scroll_bar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    tk.Label(q_frame, text="⚡ Quick Mission Operations (One-Click)", bg="#FFFFFF", fg=PRIMARY_BLUE,
+             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=6, pady=(4, 2))
+
+    for label, raw_hex, desc in preset_cmds:
+        btn_style = "Action.TButton" if ("HK" in label or "Dummy" in label or "Ping" in label) else "TButton"
+        row_f = tk.Frame(q_frame, bg="#FFFFFF")
+        row_f.pack(fill=tk.X, padx=4, pady=2)
+        ttk.Button(row_f, text=label,
+                   command=lambda n=label, h=raw_hex, d=desc: send_preset_cmd(n, h, d),
+                   style=btn_style).pack(fill=tk.X)
+
+    # Custom Telecommand Builder inside Column 1
+    custom_tc_aio = ttk.LabelFrame(cmd_box_aio, text=" ⚙️ Custom Telecommand Builder ")
+    custom_tc_aio.pack(fill=tk.X, padx=4, pady=4)
+
+    tc_row1 = tk.Frame(custom_tc_aio, bg="#FFFFFF")
+    tc_row1.pack(fill=tk.X, padx=6, pady=2)
+    tk.Label(tc_row1, text="Target:", bg="#FFFFFF", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+    aio_target_combo = ttk.Combobox(tc_row1, textvariable=target_var, values=list(target_options.keys()), state="readonly", width=34)
+    aio_target_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+    tc_row2 = tk.Frame(custom_tc_aio, bg="#FFFFFF")
+    tc_row2.pack(fill=tk.X, padx=6, pady=2)
+    tk.Label(tc_row2, text="Addr:", bg="#FFFFFF", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+    aio_addr_e = ttk.Entry(tc_row2, textvariable=addr_var, width=12)
+    aio_addr_e.pack(side=tk.LEFT, padx=4)
+    tk.Label(tc_row2, text="Pkts:", bg="#FFFFFF", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+    aio_count_e = ttk.Entry(tc_row2, textvariable=pkts_var, width=6)
+    aio_count_e.pack(side=tk.LEFT, padx=4)
+    ttk.Button(tc_row2, text="Transmit 🚀", command=on_send_flash_cmd, style="Action.TButton").pack(side=tk.RIGHT, padx=2)
+
+    # Smart command input line
+    cmd_in_row = tk.Frame(cmd_box_aio, bg="#FFFFFF")
+    cmd_in_row.pack(fill=tk.X, padx=6, pady=(2, 4))
+    tk.Label(cmd_in_row, text="CMD:", bg="#FFFFFF", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+    aio_cmd_entry = ttk.Entry(cmd_in_row, font=("Monospace", 9))
+    aio_cmd_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+    def aio_on_send(event=None):
+        txt = aio_cmd_entry.get().strip()
+        if txt:
+            if all(c in "0123456789abcdefABCDEF " for c in txt) and len(txt.replace(" ", "")) >= 2:
+                try:
+                    send_hex_bytes(bytes.fromhex(txt.replace(" ", "")))
+                except ValueError:
+                    send_text(txt)
+            else:
+                send_text(txt)
+            aio_cmd_entry.delete(0, tk.END)
+    aio_cmd_entry.bind("<Return>", aio_on_send)
+    ttk.Button(cmd_in_row, text="Send", command=aio_on_send, width=6).pack(side=tk.RIGHT, padx=2)
+
+    # -------------------------------------------------------------------------
+    # COLUMN 2: REAL-TIME DECODED HK TELEMETRY & CW BEACON
+    # -------------------------------------------------------------------------
+    aio_col_tlm = ttk.Frame(aio_top_paned)
+    aio_top_paned.add(aio_col_tlm, weight=4)
+
+    tlm_box_aio = ttk.LabelFrame(aio_col_tlm, text=" 📡 Housekeeping Telemetry (Real-Time Decoded) ")
+    tlm_box_aio.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+    tk.Label(tlm_box_aio, textvariable=hk_meta_var, bg="#FFFFFF", fg=TEXT_MUTED,
+             font=("Segoe UI", 8, "italic")).pack(fill=tk.X, padx=6, pady=(2, 4))
+
+    cards_frame = tk.Frame(tlm_box_aio, bg="#FFFFFF")
+    cards_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+
+    sections = [
+        ("⚡ POWER & VOLTAGES", [
+            ("vbat", "Battery V", "V", "#0284C7"),
+            ("vsol", "Solar Panel", "V", "#0284C7"),
+            ("vbus", "3V3 Reg Bus", "V", "#0284C7"),
+        ]),
+        ("🌡️ TEMPERATURES", [
+            ("t_ant", "Antenna", "°C", "#EA580C"),
+            ("t_bat", "Battery", "°C", "#EA580C"),
+            ("t_bpb", "BPB Board", "°C", "#EA580C"),
+        ]),
+        ("🔋 SYSTEM CURRENTS", [
+            ("i_unreg", "Unreg Bus", "A", "#7C3AED"),
+            ("i_3v3", "3V3 Rail", "A", "#7C3AED"),
+            ("i_5v", "5V Rail", "A", "#7C3AED"),
+            ("i_bat", "Battery Net", "A", "#7C3AED"),
+        ]),
+        ("🧭 ATTITUDE & IMU (ADCS)", [
+            ("gx", "Gyro X", "c-dps", "#059669"),
+            ("gy", "Gyro Y", "c-dps", "#059669"),
+            ("gz", "Gyro Z", "c-dps", "#059669"),
+            ("mx", "Mag X", "uT", "#0D9488"),
+            ("my", "Mag Y", "uT", "#0D9488"),
+            ("mz", "Mag Z", "uT", "#0D9488"),
+        ]),
+    ]
+
+    for sec_title, fields in sections:
+        sec_f = tk.LabelFrame(cards_frame, text=f" {sec_title} ", bg="#FFFFFF", fg=PRIMARY_BLUE,
+                              font=("Segoe UI", 8, "bold"))
+        sec_f.pack(fill=tk.X, padx=4, pady=3)
+        grid_inner = tk.Frame(sec_f, bg="#FFFFFF")
+        grid_inner.pack(fill=tk.X, padx=4, pady=2)
+        for idx, (k, name, u, col) in enumerate(fields):
+            r, c = divmod(idx, 3)
+            c_box = tk.Frame(grid_inner, bg="#F8FAFC", relief="solid", bd=1)
+            c_box.grid(row=r, column=c, sticky="nsew", padx=3, pady=2)
+            grid_inner.columnconfigure(c, weight=1)
+            tk.Label(c_box, text=f"{name} ({u})", bg="#F8FAFC", fg=TEXT_MUTED, font=("Segoe UI", 7)).pack(anchor="w", padx=4, pady=(2, 0))
+            tk.Label(c_box, textvariable=hk_vars[k][0], bg="#F8FAFC", fg=col, font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=4, pady=(0, 2))
+
+    # CW Decoder Box inside Column 2
+    cw_box_aio = ttk.LabelFrame(aio_col_tlm, text=" 📻 CW Beacon & Morse Live Decoder ")
+    cw_box_aio.pack(fill=tk.X, padx=4, pady=(0, 4))
+
+    cw_row_a = tk.Frame(cw_box_aio, bg="#0F172A", padx=6, pady=4)
+    cw_row_a.pack(fill=tk.X)
+    tk.Label(cw_row_a, text="CW 435.000 MHz", bg="#0F172A", fg="#38BDF8", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+    tk.Label(cw_row_a, textvariable=cw_state_var, bg="#334155", fg="#FFFFFF", font=("Segoe UI", 9, "bold"), padx=6, pady=1).pack(side=tk.LEFT, padx=8)
+    tk.Label(cw_row_a, textvariable=cw_rssi_var, bg="#0F172A", fg="#FBBF24", font=("Courier", 10, "bold")).pack(side=tk.RIGHT, padx=4)
+
+    cw_row_b = tk.Frame(cw_box_aio, bg="#0F172A", padx=6, pady=2)
+    cw_row_b.pack(fill=tk.X)
+    tk.Label(cw_row_b, text="LIVE:", bg="#0F172A", fg="#64748B", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+    tk.Label(cw_row_b, textvariable=cw_live_var, bg="#0F172A", fg="#4ADE80", font=("Courier", 12, "bold"), anchor="w").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+    cw_row_c = tk.Frame(cw_box_aio, bg="#0F172A", padx=6, pady=2)
+    cw_row_c.pack(fill=tk.X)
+    tk.Label(cw_row_c, text="LAST:", bg="#0F172A", fg="#64748B", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+    tk.Label(cw_row_c, textvariable=cw_last_var, bg="#0F172A", fg="#E2E8F0", font=("Courier", 10), anchor="w").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+    # -------------------------------------------------------------------------
+    # COLUMN 3: LIVE CAMERA RECONSTRUCTION & FLASH DATA
+    # -------------------------------------------------------------------------
+    aio_col_cam = ttk.Frame(aio_top_paned)
+    aio_top_paned.add(aio_col_cam, weight=3)
+
+    cam_box_aio = ttk.LabelFrame(aio_col_cam, text=" 📷 Live Camera Reconstruction (JPEG Photo) ")
+    cam_box_aio.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+    cam_info_f = tk.Frame(cam_box_aio, bg="#FFFFFF")
+    cam_info_f.pack(fill=tk.X, padx=4, pady=2)
+    tk.Label(cam_info_f, textvariable=cam_info_var, bg="#FFFFFF", fg=PRIMARY_BLUE, font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+
+    aio_cam_prog = ttk.Progressbar(cam_box_aio, orient="horizontal", mode="determinate")
+    aio_cam_prog.pack(fill=tk.X, padx=6, pady=2)
+
+    aio_cam_canvas = tk.Canvas(cam_box_aio, bg="#0F172A", highlightthickness=0, height=220)
+    aio_cam_canvas.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+    aio_cam_canvas.create_text(160, 110, text="Live Camera Photo Preview\nWaiting for GMSK 435.000 MHz photo packets...",
+                              fill="#94A3B8", font=("Segoe UI", 9), justify=tk.CENTER)
+
+    cam_btns_f = tk.Frame(cam_box_aio, bg="#FFFFFF")
+    cam_btns_f.pack(fill=tk.X, padx=6, pady=4)
+    ttk.Button(cam_btns_f, text="💾 Save Photo", command=save_camera_photo, style="Success.TButton").pack(side=tk.LEFT, padx=2)
+    ttk.Button(cam_btns_f, text="👁️ View Image", command=open_photo_external).pack(side=tk.LEFT, padx=2)
+    ttk.Button(cam_btns_f, text="🗑 Clear", command=clear_camera_buffer).pack(side=tk.RIGHT, padx=2)
+
+    # Flash Hex Chunk Inspector inside Column 3
+    flash_box_aio = ttk.LabelFrame(aio_col_cam, text=" 💾 Latest 128B Flash / SDR Memory Chunk ")
+    flash_box_aio.pack(fill=tk.X, padx=4, pady=(0, 4))
+
+    aio_flash_preview = scrolledtext.ScrolledText(flash_box_aio, bg="#F8FAFC", fg=TEXT_MAIN,
+                                                  font=("Courier", 8), height=5, relief="solid", bd=1)
+    aio_flash_preview.pack(fill=tk.X, padx=4, pady=2)
+    aio_flash_preview.insert(tk.END, "No raw flash packets received yet. Click 'Request Live HK' or 'Flash Telemetry'.\n")
+
+    f_btns_f = tk.Frame(flash_box_aio, bg="#FFFFFF")
+    f_btns_f.pack(fill=tk.X, padx=4, pady=2)
+    ttk.Button(f_btns_f, text="⚡ Ingest SDR Hex", command=on_ingest_pasted_sdr).pack(side=tk.LEFT, padx=2)
+    ttk.Button(f_btns_f, text="📡 Toggle SDR Server", command=toggle_sdr_server).pack(side=tk.RIGHT, padx=2)
+
+    # -------------------------------------------------------------------------
+    # BOTTOM PANE: UNIFIED REAL-TIME ACTIVITY LOG & TERMINAL
+    # -------------------------------------------------------------------------
+    aio_bot_frame = ttk.LabelFrame(aio_main_paned, text=" 📜 Unified Real-Time Activity Log & Console Terminal ")
+    aio_main_paned.add(aio_bot_frame, weight=3)
+
+    aio_log_bar = tk.Frame(aio_bot_frame, bg="#FFFFFF", padx=6, pady=2)
+    aio_log_bar.pack(fill=tk.X)
+
+    ttk.Checkbutton(aio_log_bar, text="Autoscroll", variable=autoscroll_var).pack(side=tk.LEFT, padx=4)
+
+    aio_log = scrolledtext.ScrolledText(aio_bot_frame, bg="#FFFFFF", fg=TEXT_MAIN,
+                                        font=("Monospace", 9), height=7, relief="solid", bd=1)
+    aio_log.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+
+    for tag, colour in [
+        ("tx", "#0284C7"),
+        ("rx", "#16A34A"),
+        ("ack", "#059669"),
+        ("flash", "#7C3AED"),
+        ("error", "#DC2626"),
+        ("info", "#003893"),
+        ("telem", "#D97706"),
+    ]:
+        aio_log.tag_config(tag, foreground=colour)
+
+    ttk.Button(aio_log_bar, text="Clear Console", command=lambda: aio_log.delete("1.0", tk.END)).pack(side=tk.RIGHT, padx=4)
+    ttk.Button(aio_log_bar, text="Export Log...", command=save_full_log).pack(side=tk.RIGHT, padx=4)
+    ttk.Button(aio_log_bar, text="📊 Export Excel (.xlsx)", command=lambda: export_all_to_excel(silent=False), style="Success.TButton").pack(side=tk.RIGHT, padx=4)
+
+    # Bottom Terminal Command Bar
+    aio_term_bar = tk.Frame(aio_bot_frame, bg="#FFFFFF", padx=6, pady=2)
+    aio_term_bar.pack(fill=tk.X)
+    tk.Label(aio_term_bar, text="Terminal Command:", bg="#FFFFFF", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT, padx=4)
+    aio_term_e = ttk.Entry(aio_term_bar, font=("Monospace", 9))
+    aio_term_e.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+    def aio_term_send(event=None):
+        c = aio_term_e.get().strip()
+        if c:
+            send_text(c)
+            aio_term_e.delete(0, tk.END)
+    aio_term_e.bind("<Return>", aio_term_send)
+    ttk.Button(aio_term_bar, text="Send ↵", command=aio_term_send, style="Action.TButton").pack(side=tk.LEFT, padx=2)
+    for qc in ["STATUS", "PING", "CARRIER 5", "RF"]:
+        ttk.Button(aio_term_bar, text=qc, command=lambda cmd=qc: send_text(cmd), width=8).pack(side=tk.LEFT, padx=2)
+
+    # Pack the All-In-One workspace by default!
+    aio_frame.pack(fill=tk.BOTH, expand=True)
+
+    # =========================================================================
     # INCOMING DATA DISPATCHERS
     # =========================================================================
     def _set_hk_card(key, val_str):
@@ -2749,10 +3039,15 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
             raw_bytes = b""
 
         stamp = time.strftime("%H:%M:%S")
-        flash_text.insert(
-            tk.END,
-            f"\n{'='*74}\n[{stamp}] FLASH PACKET "
-            f"(HEX STREAM - {len(tokens)} BYTES)\n{'='*74}\n")
+        for ft in (flash_text, aio_flash_preview):
+            if ft is not None:
+                try:
+                    ft.insert(
+                        tk.END,
+                        f"\n{'='*74}\n[{stamp}] FLASH PACKET "
+                        f"(HEX STREAM - {len(tokens)} BYTES)\n{'='*74}\n")
+                except Exception:
+                    pass
 
         parsed = decode_flash_payload_bytes(raw_bytes)
         if parsed:
@@ -2860,10 +3155,20 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
             ascii_part = "".join(
                 chr(int(x, 16)) if 32 <= int(x, 16) < 127 else "."
                 for x in chunk_tokens)
-            flash_text.insert(
-                tk.END,
-                f"+{i:04X}  {hex_part:<48}  |{ascii_part}|\n")
-        flash_text.see(tk.END)
+            for ft in (flash_text, aio_flash_preview):
+                if ft is not None:
+                    try:
+                        ft.insert(
+                            tk.END,
+                            f"+{i:04X}  {hex_part:<48}  |{ascii_part}|\n")
+                    except Exception:
+                        pass
+        for ft in (flash_text, aio_flash_preview):
+            if ft is not None:
+                try:
+                    ft.see(tk.END)
+                except Exception:
+                    pass
 
     def process_incoming_line(raw):
         line = raw.strip()
@@ -2895,8 +3200,13 @@ def run_gui(default_port=None, baudrate=115200, pa="HP"):
                                                 source="GS-RADIO")
                         except ValueError:
                             pass
-                    cam_prog["maximum"] = total
-                    cam_prog["value"] = len(state.get("cam_chunks", {}))
+                    for cp in (cam_prog, aio_cam_prog):
+                        if cp is not None:
+                            try:
+                                cp["maximum"] = total
+                                cp["value"] = len(state.get("cam_chunks", {}))
+                            except Exception:
+                                pass
                     b_count = len(state.get("cam_bytes", b""))
                     cam_info_var.set(
                         f"[GS radio] Photo chunk {pkt}/{total} | "

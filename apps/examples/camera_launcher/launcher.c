@@ -135,9 +135,9 @@ int launcher_main(int argc, char *argv[])
       printf("[LAUNCHER] OBC Main task running (PID: %d)\n", obc_pid);
     }
 
-  /* 3. Launch LittleFS Telemetry Storage Task (Stack: 3072 Bytes) */
+  /* 3. Launch LittleFS Telemetry Storage Task (Stack: 2048 Bytes) */
   printf("[LAUNCHER] Spawning LittleFS storage daemon...\n");
-  littlefs_pid = task_create("littlefs", 100, 3072, littlefs_main, NULL);
+  littlefs_pid = task_create("littlefs", 100, 2048, littlefs_main, NULL);
   if (littlefs_pid < 0)
     {
       printf("[LAUNCHER] ERROR: Failed to start LittleFS daemon (ret: %d, errno: %d)\n", littlefs_pid, errno);

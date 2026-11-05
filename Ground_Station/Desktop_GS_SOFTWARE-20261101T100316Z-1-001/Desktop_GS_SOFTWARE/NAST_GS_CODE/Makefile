@@ -66,7 +66,7 @@ REFERENCES    := \
 	-r:System.Numerics.Vectors.dll \
 	-r:System.Runtime.CompilerServices.Unsafe.dll
 
-.PHONY: all build run clean
+.PHONY: all build run gs_gui desktop_gs run_gs_gui start open clean
 
 all: build
 
@@ -91,14 +91,24 @@ build:
 	@cp -f "$(OUT_DEBUG)" "$(OUT_X64_REL)"
 	@cp -f "$(OUT_DEBUG)" "$(OUT_ROOT_EXE)"
 	@cp -f "$(OUT_DEBUG)" "Open Birds Operation.exe"
+	@cp -f "$(PROJ_DIR)/App.config" "$(OUT_DEBUG).config"
+	@cp -f "$(PROJ_DIR)/App.config" "$(OUT_RELEASE).config"
+	@cp -f "$(PROJ_DIR)/App.config" "$(OUT_X64_DBG).config"
+	@cp -f "$(PROJ_DIR)/App.config" "$(OUT_X64_REL).config"
+	@cp -f "$(PROJ_DIR)/App.config" "$(OUT_ROOT_EXE).config"
+	@cp -f "$(PROJ_DIR)/App.config" "Open Birds Operation.exe.config"
 	@cp -f $(PROJ_DIR)/bin/Debug/*.dll . 2>/dev/null || true
+	@cp -f $(PROJ_DIR)/bin/Debug/*.dll "$(PROJ_DIR)/bin/Release/" 2>/dev/null || true
+	@cp -f $(PROJ_DIR)/bin/Debug/*.dll "$(PROJ_DIR)/bin/x64/Debug/" 2>/dev/null || true
+	@cp -f $(PROJ_DIR)/bin/Debug/*.dll "$(PROJ_DIR)/bin/x64/Release/" 2>/dev/null || true
 	@echo "=================================================================="
 	@echo " Build Complete! Generated Executables:"
 	@ls -lh "$(OUT_DEBUG)" "$(OUT_RELEASE)" "$(OUT_ROOT_EXE)"
 	@echo " To launch on Linux, run: ./run_gs_software.sh  or  make run"
+	@echo " To launch on Windows, double-click: Open_Birds_Operation.exe or Run_GS_Windows.bat"
 	@echo "=================================================================="
 
-run:
+run gs_gui desktop_gs run_gs_gui start open:
 	./run_gs_software.sh
 
 clean:

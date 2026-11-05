@@ -11,7 +11,7 @@
  *     stuffed into the payload bytes
  */
 
-#define RB_DEPTH    64          /* must be power-of-2 — matches Verilog DEPTH  */
+#define RB_DEPTH    16          /* must be power-of-2 — fits 32KB SRAM1 safely */
 #define CHUNK_SIZE  256         /* bytes per chunk payload                      */
 
 /* One slot — mirrors the packed Verilog word fields */
@@ -49,5 +49,9 @@ int  rb_read  (struct image_chunk_s *c);          /* 0=ok  -1=empty */
 int  rb_count (void);                             /* current occupancy */
 int  rb_full  (void);                             /* 1 if full         */
 int  rb_empty (void);                             /* 1 if empty        */
+
+int  ensure_camera_partition_mounted(void);
+void cam_rb_drain_to_flash(void);
+void cam_rb_close_all_files(void);
 
 #endif /* RING_BUFFER_H */
